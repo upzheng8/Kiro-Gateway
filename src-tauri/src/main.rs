@@ -15,9 +15,8 @@ mod kiro_server;
 
 use clap::Parser;
 use std::thread;
+use std::path::PathBuf;
 use model::arg::Args;
-use model::config::Config;
-use kiro::model::credentials::KiroCredentials;
 use tauri::Manager;
 
 #[derive(Parser, Debug)]
@@ -26,46 +25,81 @@ struct MainArgs {
     server_args: Args,
 }
 
+/// 获取配置文件目录（优先使用 EXE 目录，开发时使用项目根目录）
+fn get_config_dir() -> PathBuf {
+    // 优先使用 EXE 所在目录
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            return exe_dir.to_path_buf();
+        }
+    }
+    // 回退到当前工作目录
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// 确保配置文件存在，不存在则创建默认配置
+fn ensure_config_file(path: &PathBuf) {
+    if !path.exists() {
+        let default_config = r#"{
+  "host": "127.0.0.1",
+  "port": 8990,
+  "apiKey": "sk-kiro-gateway-change-me",
+  "region": "us-east-1"
+}"#;
+        if let Err(e) = std::fs::write(path, default_config) {
+            eprintln!("Warning: Failed to create default config.json: {}", e);
+        } else {
+            println!("Created default config.json at: {}", path.display());
+        }
+    }
+}
+
+/// 确保凭据文件存在，不存在则创建空数组
+fn ensure_credentials_file(path: &PathBuf) {
+    if !path.exists() {
+        let default_credentials = "[]";
+        if let Err(e) = std::fs::write(path, default_credentials) {
+            eprintln!("Warning: Failed to create default credentials.json: {}", e);
+        } else {
+            println!("Created default credentials.json at: {}", path.display());
+        }
+    }
+}
+
 fn main() {
+    // 初始化日志
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive(tracing::Level::INFO.into()),
+        )
+        .init();
+
     // Parse args to get config paths
     let args = MainArgs::parse();
     
-    // 获取可执行文件所在目录，配置文件应放在 EXE 同级目录
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    // 获取配置文件目录
+    let config_dir = get_config_dir();
     
-    // 默认路径：优先使用 EXE 目录，开发时回退到相对路径
-    let default_config = if exe_dir.join("config.json").exists() {
-        exe_dir.join("config.json")
-    } else if std::path::Path::new("../config.json").exists() {
-        std::path::PathBuf::from("../config.json")
-    } else {
-        std::path::PathBuf::from("config.json")
-    };
-    
-    let default_credentials = if exe_dir.join("credentials.json").exists() {
-        exe_dir.join("credentials.json")
-    } else if std::path::Path::new("../credentials.json").exists() {
-        std::path::PathBuf::from("../credentials.json")
-    } else {
-        std::path::PathBuf::from("credentials.json")
-    };
-    
+    // 确定配置文件路径
     let config_path = args.server_args.config
-        .map(std::path::PathBuf::from)
-        .unwrap_or(default_config)
-        .to_string_lossy()
-        .to_string();
-    let credentials_path = args.server_args.credentials
-        .map(std::path::PathBuf::from)
-        .unwrap_or(default_credentials)
-        .to_string_lossy()
-        .to_string();
+        .map(PathBuf::from)
+        .unwrap_or_else(|| config_dir.join("config.json"));
     
-    println!("Config path: {}", config_path);
-    println!("Credentials path: {}", credentials_path);
+    let credentials_path = args.server_args.credentials
+        .map(PathBuf::from)
+        .unwrap_or_else(|| config_dir.join("credentials.json"));
+    
+    // 确保配置文件存在
+    ensure_config_file(&config_path);
+    ensure_credentials_file(&credentials_path);
+    
+    println!("=== Kiro Gateway ===");
+    println!("Config: {}", config_path.display());
+    println!("Credentials: {}", credentials_path.display());
+
+    let config_path_str = config_path.to_string_lossy().to_string();
+    let credentials_path_str = credentials_path.to_string_lossy().to_string();
 
     // Spawn the Kiro Server in a separate thread
     thread::spawn(move || {
@@ -75,10 +109,9 @@ fn main() {
             .unwrap();
             
         rt.block_on(async {
-            // Create a dummy shutdown channel for now, or link it to Tauri app exit event later
             let (_tx, rx) = tokio::sync::watch::channel(false);
             
-            if let Err(e) = kiro_server::run_server(config_path, credentials_path, rx).await {
+            if let Err(e) = kiro_server::run_server(config_path_str, credentials_path_str, rx).await {
                 eprintln!("Server Error: {}", e);
             }
         });
@@ -99,4 +132,3 @@ fn main() {
         .run(tauri::generate_context!("tauri.conf.json"))
         .expect("error while running tauri application");
 }
-
