@@ -247,7 +247,20 @@ Kiro-Gateway/
 1. **凭证安全**: 请妥善保管 `credentials.json` 文件，不要提交到版本控制
 2. **Token 刷新**: 服务会自动刷新过期的 Token，无需手动干预
 3. **删除凭据**: 需要先禁用凭据才能删除
-4. **不支持的工具**: `web_search` 和 `websearch` 工具会被自动过滤
+4. **配置文件**: 首次运行会自动在安装目录创建 `config.json` 和 `credentials.json`
+
+## 命令行参数
+
+```bash
+# 使用默认配置（EXE 同级目录的 config.json 和 credentials.json）
+./kiro-gateway
+
+# 指定配置文件路径
+./kiro-gateway -c /path/to/config.json --credentials /path/to/credentials.json
+
+# 查看帮助
+./kiro-gateway --help
+```
 
 ## License
 
