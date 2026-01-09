@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { RefreshCw, Moon, Sun, Server, Plus, Settings, FileText, FolderOpen, Terminal, Save, Trash2, ToggleLeft, ToggleRight, DollarSign, RotateCcw, ChevronUp, ChevronDown } from 'lucide-react'
+import { RefreshCw, Moon, Sun, Server, Plus, Settings, FolderOpen, Terminal, Save, Trash2, ToggleLeft, ToggleRight, DollarSign, RotateCcw, ChevronUp, ChevronDown } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -72,7 +72,7 @@ function NavItem({
   )
 }
 
-export function Dashboard({ onLogout }: DashboardProps) {
+export function Dashboard(_props: DashboardProps) {
   const [selectedCredentialId, setSelectedCredentialId] = useState<number | null>(null)
   const [balanceDialogOpen, setBalanceDialogOpen] = useState(false)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
@@ -88,7 +88,6 @@ export function Dashboard({ onLogout }: DashboardProps) {
   const [configHost, setConfigHost] = useState('127.0.0.1')
   const [configPort, setConfigPort] = useState('8990')
   const [configApiKey, setConfigApiKey] = useState('sk-kiro-rs-qazWSXedcRFV123456')
-  const [credentialsPath] = useState('credentials.json')
   
   // 日志状态
   const [logs, setLogs] = useState<string[]>(['[System] Kiro Gateway 已启动'])
