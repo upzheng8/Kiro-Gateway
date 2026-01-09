@@ -1,0 +1,29 @@
+# Build outputs
+/target
+src-tauri/target
+
+# IDE
+/.idea
+.vscode
+
+# Config files (user-specific)
+/config.json
+/credentials.json
+
+# Test files
+/test.json
+
+# Documentation
+/CLAUDE.md
+/AGENTS.md
+
+# Rust
+Cargo.lock
+
+# Node.js
+node_modules/
+/admin-ui/node_modules/
+/admin-ui/dist/
+/admin-ui/pnpm-lock.yaml
+/admin-ui/tsconfig.tsbuildinfo
+package-lock.json
