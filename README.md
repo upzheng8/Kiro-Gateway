@@ -249,6 +249,41 @@ Kiro-Gateway/
 3. **删除凭据**: 需要先禁用凭据才能删除
 4. **配置文件**: 首次运行会自动在安装目录创建 `config.json` 和 `credentials.json`
 
+## 开发与构建
+
+### 环境要求
+
+- Node.js 20+
+- pnpm 9+
+- Rust (stable)
+- Tauri CLI 2.x
+
+### 开发模式
+
+```bash
+# 1. 安装前端依赖
+cd admin-ui
+pnpm install
+
+# 2. 启动开发服务器（带热更新）
+cd ../src-tauri
+cargo tauri dev
+```
+
+### 本地构建
+
+```bash
+# 1. 构建前端
+cd admin-ui
+pnpm build
+
+# 2. 构建 Tauri 应用
+cd ../src-tauri
+cargo tauri build
+```
+
+构建产物位于 `src-tauri/target/release/bundle/` 目录。
+
 ## 命令行参数
 
 ```bash
