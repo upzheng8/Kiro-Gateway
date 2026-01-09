@@ -5,8 +5,8 @@
   "build": {
     "frontendDist": "../admin-ui/dist",
     "devUrl": "http://localhost:5173/admin/",
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
   },
   "app": {
     "windows": [
