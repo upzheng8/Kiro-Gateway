@@ -353,7 +353,7 @@ export function Dashboard(_props: DashboardProps) {
           />
           <NavItem
             icon={<Settings className="h-4 w-4" />}
-            label="系统配置"
+            label="反代配置"
             active={activeTab === 'config'}
             onClick={() => setActiveTab('config')}
           />
@@ -383,7 +383,7 @@ export function Dashboard(_props: DashboardProps) {
         <header className="h-14 flex items-center justify-between px-6 border-b bg-background">
           <h1 className="text-lg font-semibold">
             {activeTab === 'credentials' && '凭证管理'}
-            {activeTab === 'config' && '系统配置'}
+            {activeTab === 'config' && '反代配置'}
             {activeTab === 'logs' && '运行日志'}
           </h1>
           <div className="flex items-center gap-2">
@@ -603,7 +603,7 @@ export function Dashboard(_props: DashboardProps) {
             </div>
           )}
 
-          {/* 系统配置 */}
+          {/* 反代配置 */}
           {activeTab === 'config' && (
             <div className="space-y-4 max-w-2xl">
 
@@ -611,8 +611,8 @@ export function Dashboard(_props: DashboardProps) {
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
-                    <Settings className="h-4 w-4" />
-                    服务器配置
+                    <Server className="h-4 w-4" />
+                    反代服务
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
