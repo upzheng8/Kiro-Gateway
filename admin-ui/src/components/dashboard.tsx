@@ -99,7 +99,7 @@ export function Dashboard(_props: DashboardProps) {
   useQueryClient() // keep hook call for potential future use
   const { data, isLoading, error, refetch } = useCredentials()
   
-  // 凭据余额缓存
+  // 凭证余额缓存
   const [balances, setBalances] = useState<Record<number, { remaining: number; loading: boolean }>>({});
 
   // 从后端获取真实日志
@@ -127,13 +127,13 @@ export function Dashboard(_props: DashboardProps) {
     }
   }, [])
 
-  // 加载凭据列表后获取余额
+  // 加载凭证列表后获取余额
   useEffect(() => {
     if (!data?.credentials) return;
     
-    // 为每个凭据获取余额
+    // 为每个凭证获取余额
     data.credentials.forEach(async (cred) => {
-      // 跳过已禁用的凭据
+      // 跳过已禁用的凭证
       if (cred.disabled) {
         setBalances(prev => ({ ...prev, [cred.id]: { remaining: -1, loading: false } }));
         return;
@@ -163,7 +163,7 @@ export function Dashboard(_props: DashboardProps) {
     document.documentElement.classList.toggle('dark')
   }
 
-  // 刷新单个凭据的余额
+  // 刷新单个凭证的余额
   const refreshBalance = async (id: number) => {
     setBalances(prev => ({ ...prev, [id]: { remaining: 0, loading: true } }));
     try {
@@ -183,8 +183,8 @@ export function Dashboard(_props: DashboardProps) {
 
   const handleRefresh = () => {
     refetch()
-    toast.success('已刷新凭据列表')
-    addLog('[System] 已刷新凭据列表')
+    toast.success('已刷新凭证列表')
+    addLog('[System] 已刷新凭证列表')
   }
 
   const addLog = (message: string) => {
@@ -223,11 +223,11 @@ export function Dashboard(_props: DashboardProps) {
       })).filter((item: ImportCredentialItem) => item.refreshToken) // 过滤掉没有 refreshToken 的
 
       if (items.length === 0) {
-        toast.error('文件中没有有效的凭据数据')
+        toast.error('文件中没有有效的凭证数据')
         return
       }
 
-      addLog(`[System] 开始导入 ${items.length} 个凭据...`)
+      addLog(`[System] 开始导入 ${items.length} 个凭证...`)
       const result = await importCredentials(items)
       
       toast.success(result.message)
@@ -257,8 +257,8 @@ export function Dashboard(_props: DashboardProps) {
     try {
       await setCredentialDisabled(id, !currentDisabled)
       refetch()
-      toast.success(currentDisabled ? '已启用凭据' : '已禁用凭据')
-      addLog(`[System] 凭据 #${id} ${currentDisabled ? '已启用' : '已禁用'}`)
+      toast.success(currentDisabled ? '已启用凭证' : '已禁用凭证')
+      addLog(`[System] 凭证 #${id} ${currentDisabled ? '已启用' : '已禁用'}`)
     } catch (e) {
       toast.error('操作失败')
     }
@@ -270,7 +270,7 @@ export function Dashboard(_props: DashboardProps) {
     try {
       await setCredentialPriority(id, newPriority)
       refetch()
-      addLog(`[System] 凭据 #${id} 优先级已调整为 ${newPriority}`)
+      addLog(`[System] 凭证 #${id} 优先级已调整为 ${newPriority}`)
     } catch (e) {
       toast.error('操作失败')
     }
@@ -282,7 +282,7 @@ export function Dashboard(_props: DashboardProps) {
       refetch()
       refreshBalance(id)
       toast.success('已重置并启用')
-      addLog(`[System] 凭据 #${id} 已重置并启用`)
+      addLog(`[System] 凭证 #${id} 已重置并启用`)
     } catch (e) {
       toast.error('操作失败')
     }
@@ -291,20 +291,20 @@ export function Dashboard(_props: DashboardProps) {
   const handleDelete = async (id: number, isDisabled: boolean) => {
     // 检查是否已禁用
     if (!isDisabled) {
-      toast.error('请先禁用凭据后再删除')
+      toast.error('请先禁用凭证后再删除')
       return
     }
     
-    if (!confirm('确定要删除此凭据吗？此操作不可撤销。')) return
+    if (!confirm('确定要删除此凭证吗？此操作不可撤销。')) return
     try {
       await deleteCredential(id)
       refetch()
-      toast.success('已删除凭据')
-      addLog(`[System] 凭据 #${id} 已删除`)
+      toast.success('已删除凭证')
+      addLog(`[System] 凭证 #${id} 已删除`)
     } catch (e: any) {
       const message = e?.response?.data?.error?.message || '删除失败'
       toast.error(message)
-      addLog(`[Error] 删除凭据 #${id} 失败: ${message}`)
+      addLog(`[Error] 删除凭证 #${id} 失败: ${message}`)
     }
   }
 
@@ -347,7 +347,7 @@ export function Dashboard(_props: DashboardProps) {
         <nav className="flex-1 p-3 space-y-1">
           <NavItem
             icon={<Server className="h-4 w-4" />}
-            label="凭据管理"
+            label="凭证管理"
             active={activeTab === 'credentials'}
             onClick={() => setActiveTab('credentials')}
           />
@@ -382,7 +382,7 @@ export function Dashboard(_props: DashboardProps) {
         {/* 顶栏 */}
         <header className="h-14 flex items-center justify-between px-6 border-b bg-background">
           <h1 className="text-lg font-semibold">
-            {activeTab === 'credentials' && '凭据管理'}
+            {activeTab === 'credentials' && '凭证管理'}
             {activeTab === 'config' && '系统配置'}
             {activeTab === 'logs' && '运行日志'}
           </h1>
@@ -402,11 +402,11 @@ export function Dashboard(_props: DashboardProps) {
                 </Button>
                 <Button variant="outline" size="sm" onClick={handleSelectFile}>
                   <FolderOpen className="h-4 w-4 mr-1" />
-                  导入凭据
+                  导入凭证
                 </Button>
                 <Button size="sm" onClick={() => setAddDialogOpen(true)}>
                   <Plus className="h-4 w-4 mr-1" />
-                  添加凭据
+                  添加凭证
                 </Button>
               </>
             )}
@@ -436,17 +436,17 @@ export function Dashboard(_props: DashboardProps) {
 
         {/* 内容区 */}
         <div className="flex-1 overflow-auto p-6">
-          {/* 凭据管理 */}
+          {/* 凭证管理 */}
           {activeTab === 'credentials' && (
             <div className="space-y-4">
               {/* 统计 */}
               <div className="grid gap-4 grid-cols-3">
                 <Card className="p-4">
-                  <div className="text-xs text-muted-foreground mb-1">凭据总数</div>
+                  <div className="text-xs text-muted-foreground mb-1">凭证总数</div>
                   <div className="text-2xl font-bold">{data?.total || 0}</div>
                 </Card>
                 <Card className="p-4">
-                  <div className="text-xs text-muted-foreground mb-1">可用凭据</div>
+                  <div className="text-xs text-muted-foreground mb-1">可用凭证</div>
                   <div className="text-2xl font-bold text-green-600">{data?.available || 0}</div>
                 </Card>
                 <Card className="p-4">
@@ -474,7 +474,7 @@ export function Dashboard(_props: DashboardProps) {
                       {data?.credentials.length === 0 ? (
                         <tr>
                           <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
-                            暂无凭据
+                            暂无凭证
                           </td>
                         </tr>
                       ) : (
@@ -587,7 +587,7 @@ export function Dashboard(_props: DashboardProps) {
                                 <button
                                   onClick={() => handleDelete(cred.id, cred.disabled)}
                                   className="p-1.5 hover:bg-muted rounded text-red-500"
-                                  title={cred.disabled ? "删除凭据" : "请先禁用后再删除"}
+                                  title={cred.disabled ? "删除凭证" : "请先禁用后再删除"}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </button>
@@ -638,14 +638,50 @@ export function Dashboard(_props: DashboardProps) {
                         placeholder="sk-..."
                       />
                     </div>
-                    <div className="col-span-2">
-                      <FormInput
-                        label="区域 (固定)"
-                        value="us-east-1"
-                        onChange={() => {}}
-                        disabled
-                      />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* API 端点 */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Terminal className="h-4 w-4" />
+                    API 端点
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3 text-sm">
+                    <div className="text-muted-foreground text-xs mb-2">以下端点可供外部调用（基于 http://{configHost}:{configPort}）</div>
+                    
+                    <div className="space-y-2">
+                      <div className="font-medium text-xs text-muted-foreground">🔐 Anthropic API (需要 API Key)</div>
+                      <div className="bg-muted rounded-lg p-3 space-y-2 text-xs">
+                        <div className="flex justify-between items-center">
+                          <code><span className="text-green-500">GET</span> /v1/models</code>
+                          <span className="text-muted-foreground">获取可用模型列表</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <code><span className="text-blue-500">POST</span> /v1/messages</code>
+                          <span className="text-muted-foreground">创建对话 (流式/非流式)</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <code><span className="text-blue-500">POST</span> /v1/messages/count_tokens</code>
+                          <span className="text-muted-foreground">计算 Token 数量</span>
+                        </div>
+                      </div>
                     </div>
+
+                    <div className="space-y-2">
+                      <div className="font-medium text-xs text-muted-foreground">🔓 健康检查</div>
+                      <div className="bg-muted rounded-lg p-3 space-y-2 text-xs">
+                        <div className="flex justify-between items-center">
+                          <code><span className="text-green-500">GET</span> / , /health , /ping</code>
+                          <span className="text-muted-foreground">服务状态检查</span>
+                        </div>
+                      </div>
+                    </div>
+
                   </div>
                 </CardContent>
               </Card>

@@ -219,7 +219,7 @@ async fn handle_stream_request(
     input_tokens: i32,
     thinking_enabled: bool,
 ) -> Response {
-    // 调用 Kiro API（支持多凭据故障转移）
+    // 调用 Kiro API（支持多凭证故障转移）
     let response = match provider.call_api_stream(request_body).await {
         Ok(resp) => resp,
         Err(e) => {
@@ -364,7 +364,7 @@ async fn handle_non_stream_request(
     model: &str,
     input_tokens: i32,
 ) -> Response {
-    // 调用 Kiro API（支持多凭据故障转移）
+    // 调用 Kiro API（支持多凭证故障转移）
     let response = match provider.call_api(request_body).await {
         Ok(resp) => resp,
         Err(e) => {

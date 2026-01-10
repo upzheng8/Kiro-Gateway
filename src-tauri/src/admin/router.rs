@@ -17,14 +17,14 @@ use super::{
 /// 创建 Admin API 路由
 ///
 /// # 端点
-/// - `GET /credentials` - 获取所有凭据状态
-/// - `POST /credentials` - 添加新凭据
-/// - `POST /credentials/import` - 批量导入凭据
-/// - `DELETE /credentials/:id` - 删除凭据
-/// - `POST /credentials/:id/disabled` - 设置凭据禁用状态
-/// - `POST /credentials/:id/priority` - 设置凭据优先级
+/// - `GET /credentials` - 获取所有凭证状态
+/// - `POST /credentials` - 添加新凭证
+/// - `POST /credentials/import` - 批量导入凭证
+/// - `DELETE /credentials/:id` - 删除凭证
+/// - `POST /credentials/:id/disabled` - 设置凭证禁用状态
+/// - `POST /credentials/:id/priority` - 设置凭证优先级
 /// - `POST /credentials/:id/reset` - 重置失败计数
-/// - `GET /credentials/:id/balance` - 获取凭据余额
+/// - `GET /credentials/:id/balance` - 获取凭证余额
 /// - `GET /logs` - 获取运行日志
 /// - `POST /logs/clear` - 清空日志
 ///

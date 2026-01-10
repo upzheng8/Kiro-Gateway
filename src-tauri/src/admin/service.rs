@@ -23,7 +23,7 @@ impl AdminService {
         Self { token_manager }
     }
 
-    /// 获取所有凭据状态
+    /// 获取所有凭证状态
     pub fn get_all_credentials(&self) -> CredentialsStatusResponse {
         let snapshot = self.token_manager.snapshot();
 
@@ -53,9 +53,9 @@ impl AdminService {
         }
     }
 
-    /// 设置凭据禁用状态
+    /// 设置凭证禁用状态
     pub fn set_disabled(&self, id: u64, disabled: bool) -> Result<(), AdminServiceError> {
-        // 先获取当前凭据 ID，用于判断是否需要切换
+        // 先获取当前凭证 ID，用于判断是否需要切换
         let snapshot = self.token_manager.snapshot();
         let current_id = snapshot.current_id;
 
@@ -63,14 +63,14 @@ impl AdminService {
             .set_disabled(id, disabled)
             .map_err(|e| self.classify_error(e, id))?;
 
-        // 只有禁用的是当前凭据时才尝试切换到下一个
+        // 只有禁用的是当前凭证时才尝试切换到下一个
         if disabled && id == current_id {
             let _ = self.token_manager.switch_to_next();
         }
         Ok(())
     }
 
-    /// 设置凭据优先级
+    /// 设置凭证优先级
     pub fn set_priority(&self, id: u64, priority: u32) -> Result<(), AdminServiceError> {
         self.token_manager
             .set_priority(id, priority)
@@ -84,7 +84,7 @@ impl AdminService {
             .map_err(|e| self.classify_error(e, id))
     }
 
-    /// 获取凭据余额
+    /// 获取凭证余额
     pub async fn get_balance(&self, id: u64) -> Result<BalanceResponse, AdminServiceError> {
         let usage = self
             .token_manager
@@ -112,7 +112,7 @@ impl AdminService {
         })
     }
 
-    /// 添加新凭据
+    /// 添加新凭证
     ///
     /// 如果未指定优先级（默认为 0），则自动分配下一个可用优先级
     pub async fn add_credential(
@@ -123,10 +123,10 @@ impl AdminService {
         let priority = if req.priority == 0 {
             let snapshot = self.token_manager.snapshot();
             if snapshot.entries.is_empty() {
-                // 没有现有凭据时，从 0 开始
+                // 没有现有凭证时，从 0 开始
                 0
             } else {
-                // 有现有凭据时，使用 max+1
+                // 有现有凭证时，使用 max+1
                 snapshot
                     .entries
                     .iter()
@@ -139,7 +139,7 @@ impl AdminService {
             req.priority
         };
 
-        // 构建凭据对象
+        // 构建凭证对象
         let new_cred = KiroCredentials {
             id: None,
             access_token: None,
@@ -152,7 +152,7 @@ impl AdminService {
             priority,
         };
 
-        // 调用 token_manager 添加凭据
+        // 调用 token_manager 添加凭证
         let credential_id = self
             .token_manager
             .add_credential(new_cred)
@@ -161,14 +161,14 @@ impl AdminService {
 
         Ok(AddCredentialResponse {
             success: true,
-            message: format!("凭据添加成功，ID: {}", credential_id),
+            message: format!("凭证添加成功，ID: {}", credential_id),
             credential_id,
         })
     }
 
-    /// 批量导入凭据
+    /// 批量导入凭证
     ///
-    /// 如果凭据未指定优先级（默认为 0），则自动按顺序分配优先级
+    /// 如果凭证未指定优先级（默认为 0），则自动按顺序分配优先级
     pub async fn import_credentials(
         &self,
         items: Vec<super::types::ImportCredentialItem>,
@@ -179,10 +179,10 @@ impl AdminService {
         // 获取当前最大优先级，用于分配递增优先级
         let snapshot = self.token_manager.snapshot();
         let mut next_priority = if snapshot.entries.is_empty() {
-            // 没有现有凭据时，从 0 开始
+            // 没有现有凭证时，从 0 开始
             0
         } else {
-            // 有现有凭据时，从 max+1 开始
+            // 有现有凭证时，从 max+1 开始
             snapshot
                 .entries
                 .iter()
@@ -202,7 +202,7 @@ impl AdminService {
                 item.priority
             };
 
-            // 构建凭据对象
+            // 构建凭证对象
             let new_cred = KiroCredentials {
                 id: None,
                 access_token: None,
@@ -215,13 +215,13 @@ impl AdminService {
                 priority: priority,
             };
 
-            // 尝试添加凭据
+            // 尝试添加凭证
             match self.token_manager.add_credential(new_cred).await {
                 Ok(id) => {
                     imported_ids.push(id);
                 }
                 Err(e) => {
-                    tracing::warn!("导入凭据失败，已跳过: {}", e);
+                    tracing::warn!("导入凭证失败，已跳过: {}", e);
                     skipped += 1;
                 }
             }
@@ -229,9 +229,9 @@ impl AdminService {
 
         let imported_count = imported_ids.len();
         let message = if skipped > 0 {
-            format!("成功导入 {} 个凭据，跳过 {} 个无效凭据", imported_count, skipped)
+            format!("成功导入 {} 个凭证，跳过 {} 个无效凭证", imported_count, skipped)
         } else {
-            format!("成功导入 {} 个凭据", imported_count)
+            format!("成功导入 {} 个凭证", imported_count)
         };
 
         Ok(super::types::ImportCredentialsResponse {
@@ -243,7 +243,7 @@ impl AdminService {
         })
     }
 
-    /// 删除凭据
+    /// 删除凭证
     pub fn delete_credential(&self, id: u64) -> Result<(), AdminServiceError> {
         self.token_manager
             .delete_credential(id)
@@ -264,7 +264,7 @@ impl AdminService {
     fn classify_balance_error(&self, e: anyhow::Error, id: u64) -> AdminServiceError {
         let msg = e.to_string();
 
-        // 1. 凭据不存在
+        // 1. 凭证不存在
         if msg.contains("不存在") {
             return AdminServiceError::NotFound { id };
         }
@@ -293,11 +293,11 @@ impl AdminService {
         }
     }
 
-    /// 分类添加凭据错误
+    /// 分类添加凭证错误
     fn classify_add_error(&self, e: anyhow::Error) -> AdminServiceError {
         let msg = e.to_string();
 
-        // 凭据验证失败（refreshToken 无效、格式错误等）
+        // 凭证验证失败（refreshToken 无效、格式错误等）
         let is_invalid_credential = msg.contains("缺少 refreshToken")
             || msg.contains("refreshToken 为空")
             || msg.contains("refreshToken 已被截断")
@@ -317,12 +317,12 @@ impl AdminService {
         }
     }
 
-    /// 分类删除凭据错误
+    /// 分类删除凭证错误
     fn classify_delete_error(&self, e: anyhow::Error, id: u64) -> AdminServiceError {
         let msg = e.to_string();
         if msg.contains("不存在") {
             AdminServiceError::NotFound { id }
-        } else if msg.contains("只能删除已禁用的凭据") {
+        } else if msg.contains("只能删除已禁用的凭证") {
             AdminServiceError::InvalidCredential(msg)
         } else {
             AdminServiceError::InternalError(msg)

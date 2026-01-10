@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use crate::{
-    admin, admin_ui, anthropic, 
+    admin, anthropic, 
     http_client::ProxyConfig, 
     kiro::{self, provider::KiroProvider, token_manager::MultiTokenManager},
     model::config::Config,
@@ -31,12 +31,12 @@ pub async fn run_server(
         anyhow::anyhow!("Load Credentials Error: {}", e)
     })?;
 
-    // 判断是否为多凭据格式
+    // 判断是否为多凭证格式
     let is_multiple_format = credentials_config.is_multiple();
 
-    // 转换为按优先级排序的凭据列表
+    // 转换为按优先级排序的凭证列表
     let credentials_list = credentials_config.into_sorted_credentials();
-    tracing::info!("已加载 {} 个凭据配置", credentials_list.len());
+    tracing::info!("已加载 {} 个凭证配置", credentials_list.len());
 
     // 获取 API Key
     let api_key = config.api_key.clone().unwrap_or_else(|| {
@@ -77,9 +77,9 @@ pub async fn run_server(
         proxy: proxy_config,
     });
 
-    // 构建 Anthropic API 路由 (使用第一个凭据的 profile_arn 占位，实际由 Provider 动态处理)
+    // 构建 Anthropic API 路由 (使用第一个凭证的 profile_arn 占位，实际由 Provider 动态处理)
     // 注意：这里逻辑稍微简化，Router 依赖 provider，provider 内部处理轮询
-    let first_credentials = token_manager.credentials(); // 获取当前活跃的凭据
+    let first_credentials = token_manager.credentials(); // 获取当前活跃的凭证
     
     let anthropic_app = anthropic::create_router_with_provider(
         &api_key,
@@ -91,9 +91,8 @@ pub async fn run_server(
     let admin_service = admin::AdminService::new(token_manager.clone());
     let admin_state = admin::AdminState::new("", admin_service); // 空密钥，因为已移除认证
     let admin_app = admin::create_admin_router(admin_state);
-    let admin_ui_app = admin_ui::create_admin_ui_router();
 
-    tracing::info!("Admin API / UI 已启用");
+    tracing::info!("Admin API 已启用");
     
     // 配置 CORS 允许跨域请求
     let cors = CorsLayer::new()
@@ -114,7 +113,6 @@ pub async fn run_server(
         .route("/health", axum::routing::get(health_check))
         .route("/ping", axum::routing::get(health_check))
         .nest("/api/admin", admin_app)
-        .nest("/admin", admin_ui_app)
         .layer(cors);
 
     let addr = format!("{}:{}", config.host, config.port);

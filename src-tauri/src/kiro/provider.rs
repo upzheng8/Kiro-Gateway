@@ -2,7 +2,7 @@
 //!
 //! 核心组件，负责与 Kiro API 通信
 //! 支持流式和非流式请求
-//! 支持多凭据故障转移和重试
+//! 支持多凭证故障转移和重试
 
 use reqwest::Client;
 use reqwest::header::{AUTHORIZATION, CONNECTION, CONTENT_TYPE, HOST, HeaderMap, HeaderValue};
@@ -13,7 +13,7 @@ use crate::http_client::{ProxyConfig, build_client};
 use crate::kiro::machine_id;
 use crate::kiro::token_manager::{CallContext, MultiTokenManager};
 
-/// 每个凭据的最大重试次数
+/// 每个凭证的最大重试次数
 const MAX_RETRIES_PER_CREDENTIAL: usize = 3;
 
 /// 总重试次数硬上限（避免无限重试）
@@ -22,7 +22,7 @@ const MAX_TOTAL_RETRIES: usize = 9;
 /// Kiro API Provider
 ///
 /// 核心组件，负责与 Kiro API 通信
-/// 支持多凭据故障转移和重试机制
+/// 支持多凭证故障转移和重试机制
 pub struct KiroProvider {
     token_manager: Arc<MultiTokenManager>,
     client: Client,
@@ -66,7 +66,7 @@ impl KiroProvider {
     /// 构建请求头
     ///
     /// # Arguments
-    /// * `ctx` - API 调用上下文，包含凭据和 token
+    /// * `ctx` - API 调用上下文，包含凭证和 token
     fn build_headers(&self, ctx: &CallContext) -> anyhow::Result<HeaderMap> {
         let config = self.token_manager.config();
 
@@ -120,9 +120,9 @@ impl KiroProvider {
 
     /// 发送非流式 API 请求
     ///
-    /// 支持多凭据故障转移：
-    /// - 400 Bad Request: 直接返回错误，不计入凭据失败
-    /// - 其他错误: 计入失败次数，达到阈值后切换凭据重试
+    /// 支持多凭证故障转移：
+    /// - 400 Bad Request: 直接返回错误，不计入凭证失败
+    /// - 其他错误: 计入失败次数，达到阈值后切换凭证重试
     ///
     /// # Arguments
     /// * `request_body` - JSON 格式的请求体字符串
@@ -135,9 +135,9 @@ impl KiroProvider {
 
     /// 发送流式 API 请求
     ///
-    /// 支持多凭据故障转移：
-    /// - 400 Bad Request: 直接返回错误，不计入凭据失败
-    /// - 其他错误: 计入失败次数，达到阈值后切换凭据重试
+    /// 支持多凭证故障转移：
+    /// - 400 Bad Request: 直接返回错误，不计入凭证失败
+    /// - 其他错误: 计入失败次数，达到阈值后切换凭证重试
     ///
     /// # Arguments
     /// * `request_body` - JSON 格式的请求体字符串
@@ -151,8 +151,8 @@ impl KiroProvider {
     /// 内部方法：带重试逻辑的 API 调用
     ///
     /// 重试策略：
-    /// - 每个凭据最多重试 MAX_RETRIES_PER_CREDENTIAL 次
-    /// - 总重试次数 = min(凭据数量 × 每凭据重试次数, MAX_TOTAL_RETRIES)
+    /// - 每个凭证最多重试 MAX_RETRIES_PER_CREDENTIAL 次
+    /// - 总重试次数 = min(凭证数量 × 每凭证重试次数, MAX_TOTAL_RETRIES)
     /// - 硬上限 9 次，避免无限重试
     async fn call_api_with_retry(
         &self,
@@ -216,14 +216,14 @@ impl KiroProvider {
                 return Ok(response);
             }
 
-            // 400 Bad Request - 不算凭据错误，直接返回
+            // 400 Bad Request - 不算凭证错误，直接返回
             if status.as_u16() == 400 {
                 let body = response.text().await.unwrap_or_default();
                 let api_type = if is_stream { "流式" } else { "非流式" };
                 anyhow::bail!("{} API 请求失败: {} {}", api_type, status, body);
             }
 
-            // 429 Too Many Requests - 限流错误，不算凭据错误，重试但不禁用凭据
+            // 429 Too Many Requests - 限流错误，不算凭证错误，重试但不禁用凭证
             if status.as_u16() == 429 {
                 let body = response.text().await.unwrap_or_default();
                 tracing::warn!(
@@ -256,7 +256,7 @@ impl KiroProvider {
             if !has_available {
                 let api_type = if is_stream { "流式" } else { "非流式" };
                 anyhow::bail!(
-                    "{} API 请求失败（所有凭据已用尽）: {} {}",
+                    "{} API 请求失败（所有凭证已用尽）: {} {}",
                     api_type,
                     status,
                     body

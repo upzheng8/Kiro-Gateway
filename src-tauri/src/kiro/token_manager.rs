@@ -1,7 +1,7 @@
 //! Token 管理模块
 //!
 //! 负责 Token 过期检测和刷新，支持 Social 和 IdC 认证方式
-//! 支持单凭据 (TokenManager) 和多凭据 (MultiTokenManager) 管理
+//! 支持单凭证 (TokenManager) 和多凭证 (MultiTokenManager) 管理
 
 use anyhow::bail;
 use chrono::{DateTime, Duration, Utc};
@@ -22,7 +22,7 @@ use crate::model::config::Config;
 
 /// Token 管理器
 ///
-/// 负责管理凭据和 Token 的自动刷新
+/// 负责管理凭证和 Token 的自动刷新
 pub struct TokenManager {
     config: Config,
     credentials: KiroCredentials,
@@ -39,7 +39,7 @@ impl TokenManager {
         }
     }
 
-    /// 获取凭据的引用
+    /// 获取凭证的引用
     pub fn credentials(&self) -> &KiroCredentials {
         &self.credentials
     }
@@ -360,14 +360,14 @@ pub(crate) async fn get_usage_limits(
 }
 
 // ============================================================================
-// 多凭据 Token 管理器
+// 多凭证 Token 管理器
 // ============================================================================
 
-/// 单个凭据条目的状态
+/// 单个凭证条目的状态
 struct CredentialEntry {
-    /// 凭据唯一 ID
+    /// 凭证唯一 ID
     id: u64,
-    /// 凭据信息
+    /// 凭证信息
     credentials: KiroCredentials,
     /// API 调用连续失败次数
     failure_count: u32,
@@ -379,11 +379,11 @@ struct CredentialEntry {
 // Admin API 公开结构
 // ============================================================================
 
-/// 凭据条目快照（用于 Admin API 读取）
+/// 凭证条目快照（用于 Admin API 读取）
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CredentialEntrySnapshot {
-    /// 凭据唯一 ID
+    /// 凭证唯一 ID
     pub id: u64,
     /// 优先级
     pub priority: u32,
@@ -399,65 +399,65 @@ pub struct CredentialEntrySnapshot {
     pub expires_at: Option<String>,
 }
 
-/// 凭据管理器状态快照
+/// 凭证管理器状态快照
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ManagerSnapshot {
-    /// 凭据条目列表
+    /// 凭证条目列表
     pub entries: Vec<CredentialEntrySnapshot>,
-    /// 当前活跃凭据 ID
+    /// 当前活跃凭证 ID
     pub current_id: u64,
-    /// 总凭据数量
+    /// 总凭证数量
     pub total: usize,
-    /// 可用凭据数量
+    /// 可用凭证数量
     pub available: usize,
 }
 
-/// 多凭据 Token 管理器
+/// 多凭证 Token 管理器
 ///
-/// 支持多个凭据的管理，实现固定优先级 + 故障转移策略
+/// 支持多个凭证的管理，实现固定优先级 + 故障转移策略
 /// 故障统计基于 API 调用结果，而非 Token 刷新结果
 pub struct MultiTokenManager {
     config: Config,
     proxy: Option<ProxyConfig>,
-    /// 凭据条目列表
+    /// 凭证条目列表
     entries: Mutex<Vec<CredentialEntry>>,
-    /// 当前活动凭据 ID
+    /// 当前活动凭证 ID
     current_id: Mutex<u64>,
     /// Token 刷新锁，确保同一时间只有一个刷新操作
     refresh_lock: TokioMutex<()>,
-    /// 凭据文件路径（用于回写）
+    /// 凭证文件路径（用于回写）
     credentials_path: Option<PathBuf>,
-    /// 是否为多凭据格式（数组格式才回写）
+    /// 是否为多凭证格式（数组格式才回写）
     is_multiple_format: bool,
 }
 
-/// 每个凭据最大 API 调用失败次数
+/// 每个凭证最大 API 调用失败次数
 const MAX_FAILURES_PER_CREDENTIAL: u32 = 3;
 
 /// API 调用上下文
 ///
-/// 绑定特定凭据的调用上下文，确保 token、credentials 和 id 的一致性
+/// 绑定特定凭证的调用上下文，确保 token、credentials 和 id 的一致性
 /// 用于解决并发调用时 current_id 竞态问题
 #[derive(Clone)]
 pub struct CallContext {
-    /// 凭据 ID（用于 report_success/report_failure）
+    /// 凭证 ID（用于 report_success/report_failure）
     pub id: u64,
-    /// 凭据信息（用于构建请求头）
+    /// 凭证信息（用于构建请求头）
     pub credentials: KiroCredentials,
     /// 访问 Token
     pub token: String,
 }
 
 impl MultiTokenManager {
-    /// 创建多凭据 Token 管理器
+    /// 创建多凭证 Token 管理器
     ///
     /// # Arguments
     /// * `config` - 应用配置
-    /// * `credentials` - 凭据列表
+    /// * `credentials` - 凭证列表
     /// * `proxy` - 可选的代理配置
-    /// * `credentials_path` - 凭据文件路径（用于回写）
-    /// * `is_multiple_format` - 是否为多凭据格式（数组格式才回写）
+    /// * `credentials_path` - 凭证文件路径（用于回写）
+    /// * `is_multiple_format` - 是否为多凭证格式（数组格式才回写）
     pub fn new(
         config: Config,
         credentials: Vec<KiroCredentials>,
@@ -465,7 +465,7 @@ impl MultiTokenManager {
         credentials_path: Option<PathBuf>,
         is_multiple_format: bool,
     ) -> anyhow::Result<Self> {
-        // 计算当前最大 ID，为没有 ID 的凭据分配新 ID
+        // 计算当前最大 ID，为没有 ID 的凭证分配新 ID
         let max_existing_id = credentials.iter().filter_map(|c| c.id).max().unwrap_or(0);
         let mut next_id = max_existing_id + 1;
         let mut has_new_ids = false;
@@ -498,10 +498,10 @@ impl MultiTokenManager {
             }
         }
         if !duplicate_ids.is_empty() {
-            anyhow::bail!("检测到重复的凭据 ID: {:?}", duplicate_ids);
+            anyhow::bail!("检测到重复的凭证 ID: {:?}", duplicate_ids);
         }
 
-        // 选择初始凭据：优先级最高（priority 最小）的凭据，无凭据时为 0
+        // 选择初始凭证：优先级最高（priority 最小）的凭证，无凭证时为 0
         let initial_id = entries
             .iter()
             .min_by_key(|e| e.credentials.priority)
@@ -523,7 +523,7 @@ impl MultiTokenManager {
             if let Err(e) = manager.persist_credentials() {
                 tracing::warn!("新分配 ID 后持久化失败: {}", e);
             } else {
-                tracing::info!("已为凭据分配新 ID 并写回配置文件");
+                tracing::info!("已为凭证分配新 ID 并写回配置文件");
             }
         }
 
@@ -535,7 +535,7 @@ impl MultiTokenManager {
         &self.config
     }
 
-    /// 获取当前活动凭据的克隆
+    /// 获取当前活动凭证的克隆
     pub fn credentials(&self) -> KiroCredentials {
         let entries = self.entries.lock();
         let current_id = *self.current_id.lock();
@@ -546,12 +546,12 @@ impl MultiTokenManager {
             .unwrap_or_default()
     }
 
-    /// 获取凭据总数
+    /// 获取凭证总数
     pub fn total_count(&self) -> usize {
         self.entries.lock().len()
     }
 
-    /// 获取可用凭据数量
+    /// 获取可用凭证数量
     pub fn available_count(&self) -> usize {
         self.entries.lock().iter().filter(|e| !e.disabled).count()
     }
@@ -559,10 +559,10 @@ impl MultiTokenManager {
     /// 获取 API 调用上下文
     ///
     /// 返回绑定了 id、credentials 和 token 的调用上下文
-    /// 确保整个 API 调用过程中使用一致的凭据信息
+    /// 确保整个 API 调用过程中使用一致的凭证信息
     ///
     /// 如果 Token 过期或即将过期，会自动刷新
-    /// Token 刷新失败时会尝试下一个可用凭据（不计入失败次数）
+    /// Token 刷新失败时会尝试下一个可用凭证（不计入失败次数）
     pub async fn acquire_context(&self) -> anyhow::Result<CallContext> {
         let total = self.total_count();
         let mut tried_count = 0;
@@ -570,7 +570,7 @@ impl MultiTokenManager {
         loop {
             if tried_count >= total {
                 anyhow::bail!(
-                    "所有凭据均无法获取有效 Token（可用: {}/{}）",
+                    "所有凭证均无法获取有效 Token（可用: {}/{}）",
                     self.available_count(),
                     total
                 );
@@ -580,11 +580,11 @@ impl MultiTokenManager {
                 let entries = self.entries.lock();
                 let current_id = *self.current_id.lock();
 
-                // 找到当前凭据
+                // 找到当前凭证
                 if let Some(entry) = entries.iter().find(|e| e.id == current_id && !e.disabled) {
                     (entry.id, entry.credentials.clone())
                 } else {
-                    // 当前凭据不可用，选择优先级最高的可用凭据
+                    // 当前凭证不可用，选择优先级最高的可用凭证
                     if let Some(entry) = entries
                         .iter()
                         .filter(|e| !e.disabled)
@@ -603,7 +603,7 @@ impl MultiTokenManager {
                         // 因为 available_count() 会尝试获取 entries 锁，
                         // 而此时我们已经持有该锁，会导致死锁
                         let available = entries.iter().filter(|e| !e.disabled).count();
-                        anyhow::bail!("所有凭据均已禁用（{}/{}）", available, total);
+                        anyhow::bail!("所有凭证均已禁用（{}/{}）", available, total);
                     }
                 }
             };
@@ -614,9 +614,9 @@ impl MultiTokenManager {
                     return Ok(ctx);
                 }
                 Err(e) => {
-                    tracing::warn!("凭据 #{} Token 刷新失败，尝试下一个凭据: {}", id, e);
+                    tracing::warn!("凭证 #{} Token 刷新失败，尝试下一个凭证: {}", id, e);
 
-                    // Token 刷新失败，切换到下一个优先级的凭据（不计入失败次数）
+                    // Token 刷新失败，切换到下一个优先级的凭证（不计入失败次数）
                     self.switch_to_next_by_priority();
                     tried_count += 1;
                 }
@@ -624,12 +624,12 @@ impl MultiTokenManager {
         }
     }
 
-    /// 切换到下一个优先级最高的可用凭据（内部方法）
+    /// 切换到下一个优先级最高的可用凭证（内部方法）
     fn switch_to_next_by_priority(&self) {
         let entries = self.entries.lock();
         let mut current_id = self.current_id.lock();
 
-        // 选择优先级最高的未禁用凭据（排除当前凭据）
+        // 选择优先级最高的未禁用凭证（排除当前凭证）
         if let Some(entry) = entries
             .iter()
             .filter(|e| !e.disabled && e.id != *current_id)
@@ -637,22 +637,22 @@ impl MultiTokenManager {
         {
             *current_id = entry.id;
             tracing::info!(
-                "已切换到凭据 #{}（优先级 {}）",
+                "已切换到凭证 #{}（优先级 {}）",
                 entry.id,
                 entry.credentials.priority
             );
         }
     }
 
-    /// 选择优先级最高的未禁用凭据作为当前凭据（内部方法）
+    /// 选择优先级最高的未禁用凭证作为当前凭证（内部方法）
     ///
-    /// 与 `switch_to_next_by_priority` 不同，此方法不排除当前凭据，
+    /// 与 `switch_to_next_by_priority` 不同，此方法不排除当前凭证，
     /// 纯粹按优先级选择，用于优先级变更后立即生效
     fn select_highest_priority(&self) {
         let entries = self.entries.lock();
         let mut current_id = self.current_id.lock();
 
-        // 选择优先级最高的未禁用凭据（不排除当前凭据）
+        // 选择优先级最高的未禁用凭证（不排除当前凭证）
         if let Some(best) = entries
             .iter()
             .filter(|e| !e.disabled)
@@ -660,7 +660,7 @@ impl MultiTokenManager {
         {
             if best.id != *current_id {
                 tracing::info!(
-                    "优先级变更后切换凭据: #{} -> #{}（优先级 {}）",
+                    "优先级变更后切换凭证: #{} -> #{}（优先级 {}）",
                     *current_id,
                     best.id,
                     best.credentials.priority
@@ -670,13 +670,13 @@ impl MultiTokenManager {
         }
     }
 
-    /// 尝试使用指定凭据获取有效 Token
+    /// 尝试使用指定凭证获取有效 Token
     ///
     /// 使用双重检查锁定模式，确保同一时间只有一个刷新操作
     ///
     /// # Arguments
-    /// * `id` - 凭据 ID，用于更新正确的条目
-    /// * `credentials` - 凭据信息
+    /// * `id` - 凭证 ID，用于更新正确的条目
+    /// * `credentials` - 凭证信息
     async fn try_ensure_token(
         &self,
         id: u64,
@@ -689,14 +689,14 @@ impl MultiTokenManager {
             // 获取刷新锁，确保同一时间只有一个刷新操作
             let _guard = self.refresh_lock.lock().await;
 
-            // 第二次检查：获取锁后重新读取凭据，因为其他请求可能已经完成刷新
+            // 第二次检查：获取锁后重新读取凭证，因为其他请求可能已经完成刷新
             let current_creds = {
                 let entries = self.entries.lock();
                 entries
                     .iter()
                     .find(|e| e.id == id)
                     .map(|e| e.credentials.clone())
-                    .ok_or_else(|| anyhow::anyhow!("凭据 #{} 不存在", id))?
+                    .ok_or_else(|| anyhow::anyhow!("凭证 #{} 不存在", id))?
             };
 
             if is_token_expired(&current_creds) || is_token_expiring_soon(&current_creds) {
@@ -708,7 +708,7 @@ impl MultiTokenManager {
                     anyhow::bail!("刷新后的 Token 仍然无效或已过期");
                 }
 
-                // 更新凭据
+                // 更新凭证
                 {
                     let mut entries = self.entries.lock();
                     if let Some(entry) = entries.iter_mut().find(|e| e.id == id) {
@@ -716,14 +716,14 @@ impl MultiTokenManager {
                     }
                 }
 
-                // 回写凭据到文件（仅多凭据格式），失败只记录警告
+                // 回写凭证到文件（仅多凭证格式），失败只记录警告
                 if let Err(e) = self.persist_credentials() {
                     tracing::warn!("Token 刷新后持久化失败（不影响本次请求）: {}", e);
                 }
 
                 new_creds
             } else {
-                // 其他请求已经完成刷新，直接使用新凭据
+                // 其他请求已经完成刷新，直接使用新凭证
                 tracing::debug!("Token 已被其他请求刷新，跳过刷新");
                 current_creds
             }
@@ -743,20 +743,20 @@ impl MultiTokenManager {
         })
     }
 
-    /// 将凭据列表回写到源文件
+    /// 将凭证列表回写到源文件
     ///
     /// 仅在以下条件满足时回写：
-    /// - 源文件是多凭据格式（数组）
+    /// - 源文件是多凭证格式（数组）
     /// - credentials_path 已设置
     ///
     /// # Returns
     /// - `Ok(true)` - 成功写入文件
-    /// - `Ok(false)` - 跳过写入（非多凭据格式或无路径配置）
+    /// - `Ok(false)` - 跳过写入（非多凭证格式或无路径配置）
     /// - `Err(_)` - 写入失败
     fn persist_credentials(&self) -> anyhow::Result<bool> {
         use anyhow::Context;
 
-        // 仅多凭据格式才回写
+        // 仅多凭证格式才回写
         if !self.is_multiple_format {
             return Ok(false);
         }
@@ -766,48 +766,48 @@ impl MultiTokenManager {
             None => return Ok(false),
         };
 
-        // 收集所有凭据
+        // 收集所有凭证
         let credentials: Vec<KiroCredentials> = {
             let entries = self.entries.lock();
             entries.iter().map(|e| e.credentials.clone()).collect()
         };
 
         // 序列化为 pretty JSON
-        let json = serde_json::to_string_pretty(&credentials).context("序列化凭据失败")?;
+        let json = serde_json::to_string_pretty(&credentials).context("序列化凭证失败")?;
 
         // 写入文件（在 Tokio runtime 内使用 block_in_place 避免阻塞 worker）
         if tokio::runtime::Handle::try_current().is_ok() {
             tokio::task::block_in_place(|| std::fs::write(path, &json))
-                .with_context(|| format!("回写凭据文件失败: {:?}", path))?;
+                .with_context(|| format!("回写凭证文件失败: {:?}", path))?;
         } else {
-            std::fs::write(path, &json).with_context(|| format!("回写凭据文件失败: {:?}", path))?;
+            std::fs::write(path, &json).with_context(|| format!("回写凭证文件失败: {:?}", path))?;
         }
 
-        tracing::debug!("已回写凭据到文件: {:?}", path);
+        tracing::debug!("已回写凭证到文件: {:?}", path);
         Ok(true)
     }
 
-    /// 报告指定凭据 API 调用成功
+    /// 报告指定凭证 API 调用成功
     ///
-    /// 重置该凭据的失败计数
+    /// 重置该凭证的失败计数
     ///
     /// # Arguments
-    /// * `id` - 凭据 ID（来自 CallContext）
+    /// * `id` - 凭证 ID（来自 CallContext）
     pub fn report_success(&self, id: u64) {
         let mut entries = self.entries.lock();
         if let Some(entry) = entries.iter_mut().find(|e| e.id == id) {
             entry.failure_count = 0;
-            tracing::debug!("凭据 #{} API 调用成功", id);
+            tracing::debug!("凭证 #{} API 调用成功", id);
         }
     }
 
-    /// 报告指定凭据 API 调用失败
+    /// 报告指定凭证 API 调用失败
     ///
-    /// 增加失败计数，达到阈值时禁用凭据并切换到优先级最高的可用凭据
-    /// 返回是否还有可用凭据可以重试
+    /// 增加失败计数，达到阈值时禁用凭证并切换到优先级最高的可用凭证
+    /// 返回是否还有可用凭证可以重试
     ///
     /// # Arguments
-    /// * `id` - 凭据 ID（来自 CallContext）
+    /// * `id` - 凭证 ID（来自 CallContext）
     pub fn report_failure(&self, id: u64) -> bool {
         let mut entries = self.entries.lock();
         let mut current_id = self.current_id.lock();
@@ -821,7 +821,7 @@ impl MultiTokenManager {
         let failure_count = entry.failure_count;
 
         tracing::warn!(
-            "凭据 #{} API 调用失败（{}/{}）",
+            "凭证 #{} API 调用失败（{}/{}）",
             id,
             failure_count,
             MAX_FAILURES_PER_CREDENTIAL
@@ -829,9 +829,9 @@ impl MultiTokenManager {
 
         if failure_count >= MAX_FAILURES_PER_CREDENTIAL {
             entry.disabled = true;
-            tracing::error!("凭据 #{} 已连续失败 {} 次，已被禁用", id, failure_count);
+            tracing::error!("凭证 #{} 已连续失败 {} 次，已被禁用", id, failure_count);
 
-            // 切换到优先级最高的可用凭据
+            // 切换到优先级最高的可用凭证
             if let Some(next) = entries
                 .iter()
                 .filter(|e| !e.disabled)
@@ -839,28 +839,28 @@ impl MultiTokenManager {
             {
                 *current_id = next.id;
                 tracing::info!(
-                    "已切换到凭据 #{}（优先级 {}）",
+                    "已切换到凭证 #{}（优先级 {}）",
                     next.id,
                     next.credentials.priority
                 );
             } else {
-                tracing::error!("所有凭据均已禁用！");
+                tracing::error!("所有凭证均已禁用！");
                 return false;
             }
         }
 
-        // 检查是否还有可用凭据
+        // 检查是否还有可用凭证
         entries.iter().any(|e| !e.disabled)
     }
 
-    /// 切换到优先级最高的可用凭据
+    /// 切换到优先级最高的可用凭证
     ///
     /// 返回是否成功切换
     pub fn switch_to_next(&self) -> bool {
         let entries = self.entries.lock();
         let mut current_id = self.current_id.lock();
 
-        // 选择优先级最高的未禁用凭据（排除当前凭据）
+        // 选择优先级最高的未禁用凭证（排除当前凭证）
         if let Some(next) = entries
             .iter()
             .filter(|e| !e.disabled && e.id != *current_id)
@@ -868,13 +868,13 @@ impl MultiTokenManager {
         {
             *current_id = next.id;
             tracing::info!(
-                "已切换到凭据 #{}（优先级 {}）",
+                "已切换到凭证 #{}（优先级 {}）",
                 next.id,
                 next.credentials.priority
             );
             true
         } else {
-            // 没有其他可用凭据，检查当前凭据是否可用
+            // 没有其他可用凭证，检查当前凭证是否可用
             entries.iter().any(|e| e.id == *current_id && !e.disabled)
         }
     }
@@ -920,14 +920,14 @@ impl MultiTokenManager {
         }
     }
 
-    /// 设置凭据禁用状态（Admin API）
+    /// 设置凭证禁用状态（Admin API）
     pub fn set_disabled(&self, id: u64, disabled: bool) -> anyhow::Result<()> {
         {
             let mut entries = self.entries.lock();
             let entry = entries
                 .iter_mut()
                 .find(|e| e.id == id)
-                .ok_or_else(|| anyhow::anyhow!("凭据不存在: {}", id))?;
+                .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?;
             entry.disabled = disabled;
             if !disabled {
                 // 启用时重置失败计数
@@ -939,34 +939,34 @@ impl MultiTokenManager {
         Ok(())
     }
 
-    /// 设置凭据优先级（Admin API）
+    /// 设置凭证优先级（Admin API）
     ///
-    /// 修改优先级后会立即按新优先级重新选择当前凭据。
-    /// 即使持久化失败，内存中的优先级和当前凭据选择也会生效。
+    /// 修改优先级后会立即按新优先级重新选择当前凭证。
+    /// 即使持久化失败，内存中的优先级和当前凭证选择也会生效。
     pub fn set_priority(&self, id: u64, priority: u32) -> anyhow::Result<()> {
         {
             let mut entries = self.entries.lock();
             let entry = entries
                 .iter_mut()
                 .find(|e| e.id == id)
-                .ok_or_else(|| anyhow::anyhow!("凭据不存在: {}", id))?;
+                .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?;
             entry.credentials.priority = priority;
         }
-        // 立即按新优先级重新选择当前凭据（无论持久化是否成功）
+        // 立即按新优先级重新选择当前凭证（无论持久化是否成功）
         self.select_highest_priority();
         // 持久化更改
         self.persist_credentials()?;
         Ok(())
     }
 
-    /// 重置凭据失败计数并重新启用（Admin API）
+    /// 重置凭证失败计数并重新启用（Admin API）
     pub fn reset_and_enable(&self, id: u64) -> anyhow::Result<()> {
         {
             let mut entries = self.entries.lock();
             let entry = entries
                 .iter_mut()
                 .find(|e| e.id == id)
-                .ok_or_else(|| anyhow::anyhow!("凭据不存在: {}", id))?;
+                .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?;
             entry.failure_count = 0;
             entry.disabled = false;
         }
@@ -975,7 +975,7 @@ impl MultiTokenManager {
         Ok(())
     }
 
-    /// 获取指定凭据的使用额度（Admin API）
+    /// 获取指定凭证的使用额度（Admin API）
     pub async fn get_usage_limits_for(&self, id: u64) -> anyhow::Result<UsageLimitsResponse> {
         let credentials = {
             let entries = self.entries.lock();
@@ -983,7 +983,7 @@ impl MultiTokenManager {
                 .iter()
                 .find(|e| e.id == id)
                 .map(|e| e.credentials.clone())
-                .ok_or_else(|| anyhow::anyhow!("凭据不存在: {}", id))?
+                .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?
         };
 
         // 检查是否需要刷新 token
@@ -997,7 +997,7 @@ impl MultiTokenManager {
                     .iter()
                     .find(|e| e.id == id)
                     .map(|e| e.credentials.clone())
-                    .ok_or_else(|| anyhow::anyhow!("凭据不存在: {}", id))?
+                    .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?
             };
 
             if is_token_expired(&current_creds) || is_token_expiring_soon(&current_creds) {
@@ -1019,12 +1019,12 @@ impl MultiTokenManager {
             } else {
                 current_creds
                     .access_token
-                    .ok_or_else(|| anyhow::anyhow!("凭据无 access_token"))?
+                    .ok_or_else(|| anyhow::anyhow!("凭证无 access_token"))?
             }
         } else {
             credentials
                 .access_token
-                .ok_or_else(|| anyhow::anyhow!("凭据无 access_token"))?
+                .ok_or_else(|| anyhow::anyhow!("凭证无 access_token"))?
         };
 
         let credentials = {
@@ -1033,24 +1033,24 @@ impl MultiTokenManager {
                 .iter()
                 .find(|e| e.id == id)
                 .map(|e| e.credentials.clone())
-                .ok_or_else(|| anyhow::anyhow!("凭据不存在: {}", id))?
+                .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?
         };
 
         get_usage_limits(&credentials, &self.config, &token, self.proxy.as_ref()).await
     }
 
-    /// 添加新凭据（Admin API）
+    /// 添加新凭证（Admin API）
     ///
     /// # 流程
-    /// 1. 验证凭据基本字段（refresh_token 不为空）
+    /// 1. 验证凭证基本字段（refresh_token 不为空）
     /// 2. 检查重复（refresh_token 已存在则跳过）
-    /// 3. 尝试刷新 Token 验证凭据有效性
+    /// 3. 尝试刷新 Token 验证凭证有效性
     /// 4. 分配新 ID（当前最大 ID + 1）
     /// 5. 添加到 entries 列表
     /// 6. 持久化到配置文件
     ///
     /// # 返回
-    /// - `Ok(u64)` - 新凭据 ID
+    /// - `Ok(u64)` - 新凭证 ID
     /// - `Err(_)` - 验证失败或添加失败
     pub async fn add_credential(&self, new_cred: KiroCredentials) -> anyhow::Result<u64> {
         // 1. 基本验证
@@ -1065,13 +1065,13 @@ impl MultiTokenManager {
                 if let Some(existing_token) = &entry.credentials.refresh_token {
                     let existing_prefix: String = existing_token.chars().take(50).collect();
                     if existing_prefix == new_token_prefix {
-                        anyhow::bail!("凭据已存在（与凭据 #{} 重复）", entry.id);
+                        anyhow::bail!("凭证已存在（与凭证 #{} 重复）", entry.id);
                     }
                 }
             }
         }
 
-        // 3. 尝试刷新 Token 验证凭据有效性
+        // 3. 尝试刷新 Token 验证凭证有效性
         let mut validated_cred =
             refresh_token(&new_cred, &self.config, self.proxy.as_ref()).await?;
 
@@ -1101,70 +1101,70 @@ impl MultiTokenManager {
         // 6. 持久化
         self.persist_credentials()?;
 
-        tracing::info!("成功添加凭据 #{}", new_id);
+        tracing::info!("成功添加凭证 #{}", new_id);
         Ok(new_id)
     }
 
-    /// 删除凭据（Admin API）
+    /// 删除凭证（Admin API）
     ///
     /// # 前置条件
-    /// - 凭据必须已禁用（disabled = true）
+    /// - 凭证必须已禁用（disabled = true）
     ///
     /// # 行为
-    /// 1. 验证凭据存在
-    /// 2. 验证凭据已禁用
+    /// 1. 验证凭证存在
+    /// 2. 验证凭证已禁用
     /// 3. 从 entries 移除
-    /// 4. 如果删除的是当前凭据，切换到优先级最高的可用凭据
-    /// 5. 如果删除后没有凭据，将 current_id 重置为 0
+    /// 4. 如果删除的是当前凭证，切换到优先级最高的可用凭证
+    /// 5. 如果删除后没有凭证，将 current_id 重置为 0
     /// 6. 持久化到文件
     ///
     /// # 返回
     /// - `Ok(())` - 删除成功
-    /// - `Err(_)` - 凭据不存在、未禁用或持久化失败
+    /// - `Err(_)` - 凭证不存在、未禁用或持久化失败
     pub fn delete_credential(&self, id: u64) -> anyhow::Result<()> {
         let was_current = {
             let mut entries = self.entries.lock();
 
-            // 查找凭据
+            // 查找凭证
             let entry = entries
                 .iter()
                 .find(|e| e.id == id)
-                .ok_or_else(|| anyhow::anyhow!("凭据不存在: {}", id))?;
+                .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?;
 
             // 检查是否已禁用
             if !entry.disabled {
-                anyhow::bail!("只能删除已禁用的凭据（请先禁用凭据 #{}）", id);
+                anyhow::bail!("只能删除已禁用的凭证（请先禁用凭证 #{}）", id);
             }
 
-            // 记录是否是当前凭据
+            // 记录是否是当前凭证
             let current_id = *self.current_id.lock();
             let was_current = current_id == id;
 
-            // 删除凭据
+            // 删除凭证
             entries.retain(|e| e.id != id);
 
             was_current
         };
 
-        // 如果删除的是当前凭据，切换到优先级最高的可用凭据
+        // 如果删除的是当前凭证，切换到优先级最高的可用凭证
         if was_current {
             self.select_highest_priority();
         }
 
-        // 如果删除后没有任何凭据，将 current_id 重置为 0（与初始化行为保持一致）
+        // 如果删除后没有任何凭证，将 current_id 重置为 0（与初始化行为保持一致）
         {
             let entries = self.entries.lock();
             if entries.is_empty() {
                 let mut current_id = self.current_id.lock();
                 *current_id = 0;
-                tracing::info!("所有凭据已删除，current_id 已重置为 0");
+                tracing::info!("所有凭证已删除，current_id 已重置为 0");
             }
         }
 
         // 持久化更改
         self.persist_credentials()?;
 
-        tracing::info!("已删除凭据 #{}", id);
+        tracing::info!("已删除凭证 #{}", id);
         Ok(())
     }
 }
@@ -1261,7 +1261,7 @@ mod tests {
     fn test_multi_token_manager_empty_credentials() {
         let config = Config::default();
         let result = MultiTokenManager::new(config, vec![], None, None, false);
-        // 支持 0 个凭据启动（可通过管理面板添加）
+        // 支持 0 个凭证启动（可通过管理面板添加）
         assert!(result.is_ok());
         let manager = result.unwrap();
         assert_eq!(manager.total_count(), 0);
@@ -1280,8 +1280,8 @@ mod tests {
         assert!(result.is_err());
         let err_msg = result.err().unwrap().to_string();
         assert!(
-            err_msg.contains("重复的凭据 ID"),
-            "错误消息应包含 '重复的凭据 ID'，实际: {}",
+            err_msg.contains("重复的凭证 ID"),
+            "错误消息应包含 '重复的凭证 ID'，实际: {}",
             err_msg
         );
     }
@@ -1295,20 +1295,20 @@ mod tests {
         let manager =
             MultiTokenManager::new(config, vec![cred1, cred2], None, None, false).unwrap();
 
-        // 凭据会自动分配 ID（从 1 开始）
+        // 凭证会自动分配 ID（从 1 开始）
         // 前两次失败不会禁用（使用 ID 1）
         assert!(manager.report_failure(1));
         assert!(manager.report_failure(1));
         assert_eq!(manager.available_count(), 2);
 
-        // 第三次失败会禁用第一个凭据
+        // 第三次失败会禁用第一个凭证
         assert!(manager.report_failure(1));
         assert_eq!(manager.available_count(), 1);
 
-        // 继续失败第二个凭据（使用 ID 2）
+        // 继续失败第二个凭证（使用 ID 2）
         assert!(manager.report_failure(2));
         assert!(manager.report_failure(2));
-        assert!(!manager.report_failure(2)); // 所有凭据都禁用了
+        assert!(!manager.report_failure(2)); // 所有凭证都禁用了
         assert_eq!(manager.available_count(), 0);
     }
 
@@ -1343,7 +1343,7 @@ mod tests {
         let manager =
             MultiTokenManager::new(config, vec![cred1, cred2], None, None, false).unwrap();
 
-        // 初始是第一个凭据
+        // 初始是第一个凭证
         assert_eq!(
             manager.credentials().refresh_token,
             Some("token1".to_string())

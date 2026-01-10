@@ -20,13 +20,13 @@ const api = axios.create({
 
 // 不再需要 API Key 认证
 
-// 获取所有凭据状态
+// 获取所有凭证状态
 export async function getCredentials(): Promise<CredentialsStatusResponse> {
   const { data } = await api.get<CredentialsStatusResponse>("/credentials");
   return data;
 }
 
-// 设置凭据禁用状态
+// 设置凭证禁用状态
 export async function setCredentialDisabled(
   id: number,
   disabled: boolean
@@ -38,7 +38,7 @@ export async function setCredentialDisabled(
   return data;
 }
 
-// 设置凭据优先级
+// 设置凭证优先级
 export async function setCredentialPriority(
   id: number,
   priority: number
@@ -58,7 +58,7 @@ export async function resetCredentialFailure(
   return data;
 }
 
-// 获取凭据余额
+// 获取凭证余额
 export async function getCredentialBalance(
   id: number
 ): Promise<BalanceResponse> {
@@ -66,7 +66,7 @@ export async function getCredentialBalance(
   return data;
 }
 
-// 添加新凭据
+// 添加新凭证
 export async function addCredential(
   req: AddCredentialRequest
 ): Promise<AddCredentialResponse> {
@@ -74,13 +74,13 @@ export async function addCredential(
   return data;
 }
 
-// 删除凭据
+// 删除凭证
 export async function deleteCredential(id: number): Promise<SuccessResponse> {
   const { data } = await api.delete<SuccessResponse>(`/credentials/${id}`);
   return data;
 }
 
-// 批量导入凭据
+// 批量导入凭证
 export interface ImportCredentialItem {
   refreshToken: string;
   authMethod?: string;

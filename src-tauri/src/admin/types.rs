@@ -2,27 +2,27 @@
 
 use serde::{Deserialize, Serialize};
 
-// ============ 凭据状态 ============
+// ============ 凭证状态 ============
 
-/// 所有凭据状态响应
+/// 所有凭证状态响应
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CredentialsStatusResponse {
-    /// 凭据总数
+    /// 凭证总数
     pub total: usize,
-    /// 可用凭据数量（未禁用）
+    /// 可用凭证数量（未禁用）
     pub available: usize,
-    /// 当前活跃凭据 ID
+    /// 当前活跃凭证 ID
     pub current_id: u64,
-    /// 各凭据状态列表
+    /// 各凭证状态列表
     pub credentials: Vec<CredentialStatusItem>,
 }
 
-/// 单个凭据的状态信息
+/// 单个凭证的状态信息
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CredentialStatusItem {
-    /// 凭据唯一 ID
+    /// 凭证唯一 ID
     pub id: u64,
     /// 优先级（数字越小优先级越高）
     pub priority: u32,
@@ -30,7 +30,7 @@ pub struct CredentialStatusItem {
     pub disabled: bool,
     /// 连续失败次数
     pub failure_count: u32,
-    /// 是否为当前活跃凭据
+    /// 是否为当前活跃凭证
     pub is_current: bool,
     /// Token 过期时间（RFC3339 格式）
     pub expires_at: Option<String>,
@@ -42,7 +42,7 @@ pub struct CredentialStatusItem {
 
 // ============ 操作请求 ============
 
-/// 启用/禁用凭据请求
+/// 启用/禁用凭证请求
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetDisabledRequest {
@@ -58,7 +58,7 @@ pub struct SetPriorityRequest {
     pub priority: u32,
 }
 
-/// 添加凭据请求
+/// 添加凭证请求
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddCredentialRequest {
@@ -84,25 +84,25 @@ fn default_auth_method() -> String {
     "social".to_string()
 }
 
-/// 添加凭据成功响应
+/// 添加凭证成功响应
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddCredentialResponse {
     pub success: bool,
     pub message: String,
-    /// 新添加的凭据 ID
+    /// 新添加的凭证 ID
     pub credential_id: u64,
 }
 
-/// 批量导入凭据请求
+/// 批量导入凭证请求
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportCredentialsRequest {
-    /// 要导入的凭据列表
+    /// 要导入的凭证列表
     pub credentials: Vec<ImportCredentialItem>,
 }
 
-/// 单个导入凭据项
+/// 单个导入凭证项
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportCredentialItem {
@@ -120,7 +120,7 @@ pub struct ImportCredentialItem {
     pub priority: u32,
 }
 
-/// 批量导入凭据响应
+/// 批量导入凭证响应
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportCredentialsResponse {
@@ -128,9 +128,9 @@ pub struct ImportCredentialsResponse {
     pub message: String,
     /// 成功导入的数量
     pub imported_count: usize,
-    /// 跳过的数量（无效凭据）
+    /// 跳过的数量（无效凭证）
     pub skipped_count: usize,
-    /// 新添加的凭据 ID 列表
+    /// 新添加的凭证 ID 列表
     pub credential_ids: Vec<u64>,
 }
 
@@ -140,7 +140,7 @@ pub struct ImportCredentialsResponse {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BalanceResponse {
-    /// 凭据 ID
+    /// 凭证 ID
     pub id: u64,
     /// 订阅类型
     pub subscription_title: Option<String>,

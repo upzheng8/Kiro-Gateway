@@ -4,7 +4,6 @@
 )]
 
 mod admin;
-mod admin_ui;
 mod anthropic;
 mod common;
 mod http_client;
@@ -68,7 +67,7 @@ fn ensure_config_file(path: &PathBuf) {
     }
 }
 
-/// 确保凭据文件存在，不存在则创建空数组
+/// 确保凭证文件存在，不存在则创建空数组
 fn ensure_credentials_file(path: &PathBuf) {
     if !path.exists() {
         let default_credentials = "[]";

@@ -1,4 +1,4 @@
-// 凭据状态响应
+// 凭证状态响应
 export interface CredentialsStatusResponse {
   total: number
   available: number
@@ -6,7 +6,7 @@ export interface CredentialsStatusResponse {
   credentials: CredentialStatusItem[]
 }
 
-// 单个凭据状态
+// 单个凭证状态
 export interface CredentialStatusItem {
   id: number
   priority: number
@@ -52,7 +52,7 @@ export interface SetPriorityRequest {
   priority: number
 }
 
-// 添加凭据请求
+// 添加凭证请求
 export interface AddCredentialRequest {
   refreshToken: string
   authMethod?: 'social' | 'idc' | 'builder-id'
@@ -61,7 +61,7 @@ export interface AddCredentialRequest {
   priority?: number
 }
 
-// 添加凭据响应
+// 添加凭证响应
 export interface AddCredentialResponse {
   success: boolean
   message: string

@@ -77,7 +77,7 @@ export function AddCredentialDialog({ open, onOpenChange }: AddCredentialDialogP
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>添加凭据</DialogTitle>
+          <DialogTitle>添加凭证</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit}>

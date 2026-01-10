@@ -21,7 +21,7 @@ pub struct AppState {
     /// API 密钥
     pub api_key: String,
     /// Kiro Provider（可选，用于实际 API 调用）
-    /// 内部使用 MultiTokenManager，已支持线程安全的多凭据管理
+    /// 内部使用 MultiTokenManager，已支持线程安全的多凭证管理
     pub kiro_provider: Option<Arc<KiroProvider>>,
     /// Profile ARN（可选，用于请求）
     pub profile_arn: Option<String>,

@@ -10,7 +10,7 @@ import {
 } from '@/api/credentials'
 import type { AddCredentialRequest } from '@/types/api'
 
-// 查询凭据列表
+// 查询凭证列表
 export function useCredentials() {
   return useQuery({
     queryKey: ['credentials'],
@@ -19,7 +19,7 @@ export function useCredentials() {
   })
 }
 
-// 查询凭据余额
+// 查询凭证余额
 export function useCredentialBalance(id: number | null) {
   return useQuery({
     queryKey: ['credential-balance', id],
@@ -64,7 +64,7 @@ export function useResetFailure() {
   })
 }
 
-// 添加新凭据
+// 添加新凭证
 export function useAddCredential() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -75,7 +75,7 @@ export function useAddCredential() {
   })
 }
 
-// 删除凭据
+// 删除凭证
 export function useDeleteCredential() {
   const queryClient = useQueryClient()
   return useMutation({

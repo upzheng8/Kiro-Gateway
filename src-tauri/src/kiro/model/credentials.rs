@@ -1,7 +1,7 @@
 //! Kiro OAuth 凭证数据模型
 //!
 //! 支持从 Kiro IDE 的凭证文件加载，使用 Social 认证方式
-//! 支持单凭据和多凭据配置格式
+//! 支持单凭证和多凭证配置格式
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -11,7 +11,7 @@ use std::path::Path;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct KiroCredentials {
-    /// 凭据唯一标识符（自增 ID）
+    /// 凭证唯一标识符（自增 ID）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<u64>,
 
@@ -43,7 +43,7 @@ pub struct KiroCredentials {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
 
-    /// 凭据优先级（数字越小优先级越高，默认为 0）
+    /// 凭证优先级（数字越小优先级越高，默认为 0）
     #[serde(default)]
     #[serde(skip_serializing_if = "is_zero")]
     pub priority: u32,
@@ -54,22 +54,22 @@ fn is_zero(value: &u32) -> bool {
     *value == 0
 }
 
-/// 凭据配置（支持单对象或数组格式）
+/// 凭证配置（支持单对象或数组格式）
 ///
 /// 自动识别配置文件格式：
 /// - 单对象格式（旧格式，向后兼容）
-/// - 数组格式（新格式，支持多凭据）
+/// - 数组格式（新格式，支持多凭证）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CredentialsConfig {
-    /// 单个凭据（旧格式）
+    /// 单个凭证（旧格式）
     Single(KiroCredentials),
-    /// 多凭据数组（新格式）
+    /// 多凭证数组（新格式）
     Multiple(Vec<KiroCredentials>),
 }
 
 impl CredentialsConfig {
-    /// 从文件加载凭据配置
+    /// 从文件加载凭证配置
     ///
     /// - 如果文件不存在，返回空数组
     /// - 如果文件内容为空，返回空数组
@@ -93,21 +93,21 @@ impl CredentialsConfig {
         Ok(config)
     }
 
-    /// 从文件加载凭据配置，如果不存在则创建空数组文件
+    /// 从文件加载凭证配置，如果不存在则创建空数组文件
     pub fn load_or_create<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         let path = path.as_ref();
 
         // 文件不存在时创建空数组文件
         if !path.exists() {
             fs::write(path, "[]")?;
-            tracing::info!("已创建默认凭据文件: {:?}", path);
+            tracing::info!("已创建默认凭证文件: {:?}", path);
             return Ok(CredentialsConfig::Multiple(vec![]));
         }
 
         Self::load(path)
     }
 
-    /// 转换为按优先级排序的凭据列表
+    /// 转换为按优先级排序的凭证列表
     pub fn into_sorted_credentials(self) -> Vec<KiroCredentials> {
         match self {
             CredentialsConfig::Single(cred) => vec![cred],
@@ -119,7 +119,7 @@ impl CredentialsConfig {
         }
     }
 
-    /// 获取凭据数量
+    /// 获取凭证数量
     pub fn len(&self) -> usize {
         match self {
             CredentialsConfig::Single(_) => 1,
@@ -135,7 +135,7 @@ impl CredentialsConfig {
         }
     }
 
-    /// 判断是否为多凭据格式（数组格式）
+    /// 判断是否为多凭证格式（数组格式）
     pub fn is_multiple(&self) -> bool {
         matches!(self, CredentialsConfig::Multiple(_))
     }

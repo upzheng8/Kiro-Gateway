@@ -39,13 +39,13 @@
 - **Anthropic API 兼容**: 完整支持 Anthropic Claude API 格式
 - **流式响应**: 支持 SSE (Server-Sent Events) 流式输出
 - **Token 自动刷新**: 自动管理和刷新 OAuth Token
-- **多凭据支持**: 支持配置多个凭据，按优先级自动故障转移
-- **智能重试**: 单凭据最多重试 3 次，单请求最多重试 9 次
-- **凭据回写**: 多凭据格式下自动回写刷新后的 Token
+- **多凭证支持**: 支持配置多个凭证，按优先级自动故障转移
+- **智能重试**: 单凭证最多重试 3 次，单请求最多重试 9 次
+- **凭证回写**: 多凭证格式下自动回写刷新后的 Token
 - **Thinking 模式**: 支持 Claude 的 extended thinking 功能
 - **工具调用**: 完整支持 function calling / tool use
 - **多模型支持**: 支持 Sonnet、Opus、Haiku 系列模型
-- **桌面 GUI**: Tauri 桌面应用，可视化凭据管理
+- **桌面 GUI**: Tauri 桌面应用，可视化凭证管理
 
 ## 支持的 API 端点
 
@@ -54,7 +54,7 @@
 | `/v1/models`                | GET  | 获取可用模型列表 |
 | `/v1/messages`              | POST | 创建消息（对话） |
 | `/v1/messages/count_tokens` | POST | 估算 Token 数量  |
-| `/api/admin/*`              | -    | 凭据管理 API     |
+| `/api/admin/*`              | -    | 凭证管理 API     |
 
 ## 快速开始
 
@@ -63,7 +63,7 @@
 1. 从 [Releases](https://github.com/Zheng-up/Kiro-Gateway/releases) 下载对应系统的安装包
 2. 安装并运行应用
 3. 首次启动会自动创建 `config.json` 和 `credentials.json`
-4. 在 GUI 中添加凭据并配置
+4. 在 GUI 中添加凭证并配置
 
 ### 方式二：从源码编译
 
@@ -110,20 +110,20 @@ cd src-tauri && cargo tauri build
 
 ### credentials.json
 
-支持单对象格式（向后兼容）或数组格式（多凭据）。
+支持单对象格式（向后兼容）或数组格式（多凭证）。
 
-#### 多凭据格式（推荐）
+#### 多凭证格式（推荐）
 
 ```json
 [
   {
-    "refreshToken": "第一个凭据的刷新token",
+    "refreshToken": "第一个凭证的刷新token",
     "expiresAt": "2025-12-31T02:32:45.144Z",
     "authMethod": "social",
     "priority": 0
   },
   {
-    "refreshToken": "第二个凭据的刷新token",
+    "refreshToken": "第二个凭证的刷新token",
     "expiresAt": "2025-12-31T02:32:45.144Z",
     "authMethod": "idc",
     "clientId": "xxxxxxxxx",
@@ -133,7 +133,7 @@ cd src-tauri && cargo tauri build
 ]
 ```
 
-#### 单凭据格式
+#### 单凭证格式
 
 ```json
 {
@@ -143,11 +143,11 @@ cd src-tauri && cargo tauri build
 }
 ```
 
-> **多凭据特性说明**：
+> **多凭证特性说明**：
 >
 > - 按 `priority` 字段排序，数字越小优先级越高（默认为 0）
-> - 单凭据最多重试 3 次，单请求最多重试 9 次
-> - 自动故障转移到下一个可用凭据
+> - 单凭证最多重试 3 次，单请求最多重试 9 次
+> - 自动故障转移到下一个可用凭证
 > - Token 刷新后自动回写到源文件
 
 ## 使用 API
@@ -217,12 +217,12 @@ Authorization: Bearer sk-your-api-key
 ```
 Kiro-Gateway/
 ├── config.json            # 配置文件（EXE 同级目录）
-├── credentials.json       # 凭据文件（EXE 同级目录）
+├── credentials.json       # 凭证文件（EXE 同级目录）
 ├── src-tauri/             # Rust 后端 + Tauri
 │   ├── src/
 │   │   ├── main.rs        # Tauri 入口
 │   │   ├── kiro_server.rs # HTTP 服务
-│   │   ├── admin/         # Admin API（凭据管理）
+│   │   ├── admin/         # Admin API（凭证管理）
 │   │   ├── anthropic/     # Anthropic API 兼容层
 │   │   └── kiro/          # Kiro API 客户端
 │   └── tauri.conf.json    # Tauri 配置
@@ -246,7 +246,7 @@ Kiro-Gateway/
 
 1. **凭证安全**: 请妥善保管 `credentials.json` 文件，不要提交到版本控制
 2. **Token 刷新**: 服务会自动刷新过期的 Token，无需手动干预
-3. **删除凭据**: 需要先禁用凭据才能删除
+3. **删除凭证**: 需要先禁用凭证才能删除
 4. **配置文件**: 首次运行会自动在安装目录创建 `config.json` 和 `credentials.json`
 
 ## 开发与构建
