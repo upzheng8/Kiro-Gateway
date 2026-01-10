@@ -9,6 +9,7 @@ mod anthropic;
 mod common;
 mod http_client;
 mod kiro;
+mod logs;
 mod model;
 pub mod token;
 mod kiro_server;
@@ -25,15 +26,28 @@ struct MainArgs {
     server_args: Args,
 }
 
-/// 获取配置文件目录（优先使用 EXE 目录，开发时使用项目根目录）
+/// 获取配置文件目录（使用用户目录下的 .kiro-gateway 文件夹）
 fn get_config_dir() -> PathBuf {
-    // 优先使用 EXE 所在目录
+    // 使用用户目录下的 .kiro-gateway 文件夹
+    if let Some(home_dir) = dirs::home_dir() {
+        let config_dir = home_dir.join(".kiro-gateway");
+        // 确保目录存在
+        if !config_dir.exists() {
+            if let Err(e) = std::fs::create_dir_all(&config_dir) {
+                eprintln!("Warning: Failed to create config directory: {}", e);
+            }
+        }
+        return config_dir;
+    }
+    
+    // 回退：尝试使用 EXE 所在目录
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             return exe_dir.to_path_buf();
         }
     }
-    // 回退到当前工作目录
+    
+    // 最终回退到当前工作目录
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 

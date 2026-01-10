@@ -89,8 +89,9 @@ export function Dashboard(_props: DashboardProps) {
   const [configPort, setConfigPort] = useState('8990')
   const [configApiKey, setConfigApiKey] = useState('sk-kiro-rs-qazWSXedcRFV123456')
   
-  // 日志状态
-  const [logs, setLogs] = useState<string[]>(['[System] Kiro Gateway 已启动'])
+  // 日志状态 - 使用 LogEntry 类型
+  const [logs, setLogs] = useState<import('@/api/credentials').LogEntry[]>([])
+  const [localLogs, setLocalLogs] = useState<string[]>(['[System] Kiro Gateway 已启动'])
   const logsEndRef = useRef<HTMLDivElement>(null)
   const logIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -101,24 +102,23 @@ export function Dashboard(_props: DashboardProps) {
   // 凭据余额缓存
   const [balances, setBalances] = useState<Record<number, { remaining: number; loading: boolean }>>({});
 
-  // 模拟实时日志
+  // 从后端获取真实日志
   useEffect(() => {
-    const simulateLogs = () => {
-      const sampleLogs = [
-        '[INFO] 请求处理: POST /v1/messages',
-        '[INFO] 使用凭据 #1 (priority: 100)',
-        '[DEBUG] Token 刷新成功',
-        '[INFO] 响应完成: 200 OK (耗时 1.2s)',
-        '[WARN] 凭据 #2 即将过期',
-        '[INFO] 流式响应开始...',
-        '[DEBUG] 已发送 chunk 1/10',
-        '[INFO] 流式响应完成',
-      ]
-      const randomLog = sampleLogs[Math.floor(Math.random() * sampleLogs.length)]
-      addLog(randomLog)
+    const fetchLogs = async () => {
+      try {
+        const { getLogs } = await import('@/api/credentials')
+        const response = await getLogs()
+        setLogs(response.logs)
+      } catch (e) {
+        // 忽略错误，保持当前日志
+      }
     }
     
-    logIntervalRef.current = setInterval(simulateLogs, 5000)
+    // 立即获取一次
+    fetchLogs()
+    
+    // 每 2 秒获取一次
+    logIntervalRef.current = setInterval(fetchLogs, 2000)
     
     return () => {
       if (logIntervalRef.current) {
@@ -189,7 +189,7 @@ export function Dashboard(_props: DashboardProps) {
 
   const addLog = (message: string) => {
     const timestamp = new Date().toLocaleTimeString()
-    setLogs(prev => [...prev.slice(-199), `[${timestamp}] ${message}`])
+    setLocalLogs(prev => [...prev.slice(-199), `[${timestamp}] ${message}`])
   }
 
   const handleSaveConfig = () => {
@@ -280,10 +280,9 @@ export function Dashboard(_props: DashboardProps) {
     try {
       await resetCredentialFailure(id)
       refetch()
-      // 重置失败计数后也刷新余额（因为重置后凭据可能可用）
       refreshBalance(id)
-      toast.success('已重置失败计数')
-      addLog(`[System] 凭据 #${id} 失败计数已重置`)
+      toast.success('已重置并启用')
+      addLog(`[System] 凭据 #${id} 已重置并启用`)
     } catch (e) {
       toast.error('操作失败')
     }
@@ -418,7 +417,17 @@ export function Dashboard(_props: DashboardProps) {
               </Button>
             )}
             {activeTab === 'logs' && (
-              <Button variant="outline" size="sm" onClick={() => setLogs([])}>
+              <Button variant="outline" size="sm" onClick={async () => {
+                try {
+                  const { clearLogs } = await import('@/api/credentials')
+                  await clearLogs()
+                  setLogs([])
+                  setLocalLogs([])
+                  toast.success('日志已清空')
+                } catch (e) {
+                  toast.error('清空日志失败')
+                }
+              }}>
                 清空日志
               </Button>
             )}
@@ -454,6 +463,7 @@ export function Dashboard(_props: DashboardProps) {
                       <tr>
                         <th className="text-center px-4 py-3 font-medium">ID</th>
                         <th className="text-center px-4 py-3 font-medium">剩余额度</th>
+                        <th className="text-center px-4 py-3 font-medium">Token有效期</th>
                         <th className="text-center px-4 py-3 font-medium">优先级</th>
                         <th className="text-center px-4 py-3 font-medium">状态</th>
                         <th className="text-center px-4 py-3 font-medium">失败次数</th>
@@ -489,6 +499,31 @@ export function Dashboard(_props: DashboardProps) {
                                 <span className={balances[cred.id]?.remaining < 1 ? 'text-red-500' : 'text-green-600'}>
                                   ${balances[cred.id]?.remaining?.toFixed(2) || '0.00'}
                                 </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center font-mono text-xs">
+                              {cred.disabled ? (
+                                <span className="text-muted-foreground">-</span>
+                              ) : cred.expiresAt ? (
+                                (() => {
+                                  const expires = new Date(cred.expiresAt)
+                                  const now = new Date()
+                                  const diffMs = expires.getTime() - now.getTime()
+                                  const diffMin = Math.floor(diffMs / 60000)
+                                  
+                                  if (diffMin < 0) {
+                                    return <span className="text-red-500">已过期</span>
+                                  } else if (diffMin < 10) {
+                                    return <span className="text-yellow-500">{diffMin}分钟</span>
+                                  } else if (diffMin < 60) {
+                                    return <span className="text-green-500">{diffMin}分钟</span>
+                                  } else {
+                                    const hours = Math.floor(diffMin / 60)
+                                    return <span className="text-green-600">{hours}小时</span>
+                                  }
+                                })()
+                              ) : (
+                                <span className="text-muted-foreground">未知</span>
                               )}
                             </td>
                             <td className="px-4 py-3 text-center">
@@ -545,7 +580,7 @@ export function Dashboard(_props: DashboardProps) {
                                 <button
                                   onClick={() => handleResetFailure(cred.id)}
                                   className="p-1.5 hover:bg-muted rounded"
-                                  title="重置失败计数"
+                                  title="重置并启用"
                                 >
                                   <RotateCcw className="h-4 w-4" />
                                 </button>
@@ -622,23 +657,54 @@ export function Dashboard(_props: DashboardProps) {
             <Card className="h-full">
               <CardContent className="p-0 h-full">
                 <div className="h-full overflow-y-auto bg-zinc-900 text-zinc-100 rounded-lg p-4 font-mono text-xs leading-relaxed">
-                  {logs.length === 0 ? (
+                  {/* 本地日志 */}
+                  {localLogs.map((log, index) => (
+                    <div 
+                      key={`local-${index}`} 
+                      className={`py-0.5 ${
+                        log.includes('[Error]') || log.includes('[ERROR]') ? 'text-red-400' : 
+                        log.includes('[WARN]') ? 'text-yellow-400' :
+                        log.includes('[System]') || log.includes('[INFO]') ? 'text-blue-400' : 
+                        log.includes('[DEBUG]') ? 'text-zinc-500' :
+                        'text-zinc-300'
+                      }`}
+                    >
+                      {log}
+                    </div>
+                  ))}
+                  {/* 后端日志 - 简洁模式 */}
+                  {logs.length === 0 && localLogs.length === 0 ? (
                     <div className="text-zinc-500 text-center py-8">暂无日志</div>
                   ) : (
-                    logs.map((log, index) => (
-                      <div 
-                        key={index} 
-                        className={`py-0.5 ${
-                          log.includes('[Error]') || log.includes('[ERROR]') ? 'text-red-400' : 
-                          log.includes('[WARN]') ? 'text-yellow-400' :
-                          log.includes('[System]') || log.includes('[INFO]') ? 'text-blue-400' : 
-                          log.includes('[DEBUG]') ? 'text-zinc-500' :
-                          'text-zinc-300'
-                        }`}
-                      >
-                        {log}
-                      </div>
-                    ))
+                    logs.map((log, index) => {
+                      // 请求日志：显示用户提问摘要
+                      if (log.request) {
+                        const shortModel = log.request.model.replace('claude-', '').replace('-20251001', '').replace('-20251101', '')
+                        const shortMsg = log.request.userMessagePreview.length > 50 
+                          ? log.request.userMessagePreview.slice(0, 50) + '...'
+                          : log.request.userMessagePreview
+                        return (
+                          <div key={`api-${index}`} className="py-0.5 text-green-400">
+                            [{log.timestamp}] 📨 {shortModel} | {shortMsg}
+                          </div>
+                        )
+                      }
+                      // 响应日志：显示 token 消耗
+                      if (log.response) {
+                        const shortModel = log.response.model.replace('claude-', '').replace('-20251001', '').replace('-20251101', '')
+                        return (
+                          <div key={`api-${index}`} className="py-0.5 text-cyan-400">
+                            [{log.timestamp}] 📤 {shortModel} | 输入: {log.response.inputTokens} | 输出: {log.response.outputTokens} | {log.response.stopReason}
+                          </div>
+                        )
+                      }
+                      // 其他日志
+                      return (
+                        <div key={`api-${index}`} className="py-0.5 text-zinc-400">
+                          [{log.timestamp}] {log.message}
+                        </div>
+                      )
+                    })
                   )}
                   <div ref={logsEndRef} />
                 </div>

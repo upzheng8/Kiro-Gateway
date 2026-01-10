@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use crate::{
     admin, admin_ui, anthropic, 
-    http_client::{self, ProxyConfig}, 
+    http_client::ProxyConfig, 
     kiro::{self, provider::KiroProvider, token_manager::MultiTokenManager},
-    model::{config::Config, arg::Args},
+    model::config::Config,
     token,
 };
-use kiro::model::credentials::{CredentialsConfig, KiroCredentials};
+use kiro::model::credentials::CredentialsConfig;
 use tokio::sync::watch;
 use tower_http::cors::{CorsLayer, Any};
 
@@ -101,7 +101,18 @@ pub async fn run_server(
         .allow_methods(Any)
         .allow_headers(Any);
     
+    // 健康检查响应
+    async fn health_check() -> axum::Json<serde_json::Value> {
+        axum::Json(serde_json::json!({
+            "status": "ok",
+            "service": "kiro-gateway"
+        }))
+    }
+    
     let app = anthropic_app
+        .route("/", axum::routing::get(health_check))
+        .route("/health", axum::routing::get(health_check))
+        .route("/ping", axum::routing::get(health_check))
         .nest("/api/admin", admin_app)
         .nest("/admin", admin_ui_app)
         .layer(cors);

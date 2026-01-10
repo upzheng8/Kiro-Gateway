@@ -259,7 +259,7 @@ impl SseStateManager {
     }
 
     /// 判断指定块是否处于可接收 delta 的打开状态
-    fn is_block_open_of_type(&self, index: i32, expected_type: &str) -> bool {
+    pub fn is_block_open_of_type(&self, index: i32, expected_type: &str) -> bool {
         self.active_blocks
             .get(&index)
             .is_some_and(|b| b.started && !b.stopped && b.block_type == expected_type)
@@ -291,6 +291,16 @@ impl SseStateManager {
         } else {
             "end_turn".to_string()
         }
+    }
+
+    /// 获取 stop_reason（用于日志）
+    pub fn stop_reason(&self) -> String {
+        self.get_stop_reason()
+    }
+
+    /// 获取是否有工具调用（用于日志）
+    pub fn has_tool_use(&self) -> bool {
+        self.has_tool_use
     }
 
     /// 处理 message_start 事件
@@ -1003,6 +1013,29 @@ impl StreamContext {
 
         // 使用从 contextUsageEvent 计算的 input_tokens，如果没有则使用估算值
         let final_input_tokens = self.context_input_tokens.unwrap_or(self.input_tokens);
+
+        // 记录流式响应完成日志
+        tracing::info!(
+            model = %self.model,
+            input_tokens = %final_input_tokens,
+            output_tokens = %self.output_tokens,
+            stop_reason = %self.state_manager.stop_reason(),
+            has_tool_use = %self.state_manager.has_tool_use(),
+            "📤 流式响应完成"
+        );
+
+        // 记录到 Admin UI 日志
+        {
+            use crate::logs::{LOG_COLLECTOR, ResponseInfo};
+            LOG_COLLECTOR.add_response_log(ResponseInfo {
+                model: self.model.clone(),
+                input_tokens: final_input_tokens,
+                output_tokens: self.output_tokens,
+                stop_reason: self.state_manager.stop_reason(),
+                has_tool_use: self.state_manager.has_tool_use(),
+                response_preview: String::new(), // 流式响应不保存预览
+            }, true);
+        }
 
         // 生成最终事件
         events.extend(

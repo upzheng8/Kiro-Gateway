@@ -1,11 +1,11 @@
 {
   "productName": "kiro-gateway",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "com.kiro.gateway",
   "build": {
     "frontendDist": "../admin-ui/dist",
     "devUrl": "http://localhost:5173/admin/",
-    "beforeDevCommand": "",
+    "beforeDevCommand": "cd ../admin-ui && npm run dev",
     "beforeBuildCommand": ""
   },
   "app": {

@@ -117,6 +117,44 @@ pub struct Message {
     pub content: serde_json::Value,
 }
 
+impl Message {
+    /// 获取消息内容的预览（用于日志）
+    /// 使用字符数而非字节数截取，避免切割多字节字符导致 panic
+    pub fn content_preview(&self, max_chars: usize) -> String {
+        // 安全截取字符串的辅助函数
+        fn safe_truncate(s: &str, max_chars: usize) -> String {
+            let char_count = s.chars().count();
+            if char_count > max_chars {
+                let truncated: String = s.chars().take(max_chars).collect();
+                format!("{}...", truncated)
+            } else {
+                s.to_string()
+            }
+        }
+
+        // 如果是字符串
+        if let Some(s) = self.content.as_str() {
+            return safe_truncate(s, max_chars);
+        }
+        
+        // 如果是数组，提取第一个 text 类型的内容
+        if let Some(arr) = self.content.as_array() {
+            for item in arr {
+                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                    return safe_truncate(text, max_chars);
+                }
+            }
+            // 如果没有 text，返回类型摘要
+            let types: Vec<&str> = arr.iter()
+                .filter_map(|item| item.get("type").and_then(|t| t.as_str()))
+                .collect();
+            return format!("[{}]", types.join(", "));
+        }
+        
+        "(未知格式)".to_string()
+    }
+}
+
 /// 系统消息
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SystemMessage {

@@ -113,10 +113,32 @@ impl AdminService {
     }
 
     /// 添加新凭据
+    ///
+    /// 如果未指定优先级（默认为 0），则自动分配下一个可用优先级
     pub async fn add_credential(
         &self,
         req: AddCredentialRequest,
     ) -> Result<AddCredentialResponse, AdminServiceError> {
+        // 如果优先级为 0，自动分配下一个优先级
+        let priority = if req.priority == 0 {
+            let snapshot = self.token_manager.snapshot();
+            if snapshot.entries.is_empty() {
+                // 没有现有凭据时，从 0 开始
+                0
+            } else {
+                // 有现有凭据时，使用 max+1
+                snapshot
+                    .entries
+                    .iter()
+                    .map(|e| e.priority)
+                    .max()
+                    .unwrap_or(0)
+                    + 1
+            }
+        } else {
+            req.priority
+        };
+
         // 构建凭据对象
         let new_cred = KiroCredentials {
             id: None,
@@ -127,7 +149,7 @@ impl AdminService {
             auth_method: Some(req.auth_method),
             client_id: req.client_id,
             client_secret: req.client_secret,
-            priority: req.priority,
+            priority,
         };
 
         // 调用 token_manager 添加凭据
@@ -145,6 +167,8 @@ impl AdminService {
     }
 
     /// 批量导入凭据
+    ///
+    /// 如果凭据未指定优先级（默认为 0），则自动按顺序分配优先级
     pub async fn import_credentials(
         &self,
         items: Vec<super::types::ImportCredentialItem>,
@@ -152,7 +176,32 @@ impl AdminService {
         let mut imported_ids = Vec::new();
         let mut skipped = 0;
 
+        // 获取当前最大优先级，用于分配递增优先级
+        let snapshot = self.token_manager.snapshot();
+        let mut next_priority = if snapshot.entries.is_empty() {
+            // 没有现有凭据时，从 0 开始
+            0
+        } else {
+            // 有现有凭据时，从 max+1 开始
+            snapshot
+                .entries
+                .iter()
+                .map(|e| e.priority)
+                .max()
+                .unwrap_or(0)
+                + 1
+        };
+
         for item in items {
+            // 如果优先级为 0（默认值），则自动分配递增优先级
+            let priority = if item.priority == 0 {
+                let assigned = next_priority;
+                next_priority += 1;
+                assigned
+            } else {
+                item.priority
+            };
+
             // 构建凭据对象
             let new_cred = KiroCredentials {
                 id: None,
@@ -163,7 +212,7 @@ impl AdminService {
                 auth_method: Some(item.auth_method),
                 client_id: item.client_id,
                 client_secret: item.client_secret,
-                priority: item.priority,
+                priority: priority,
             };
 
             // 尝试添加凭据

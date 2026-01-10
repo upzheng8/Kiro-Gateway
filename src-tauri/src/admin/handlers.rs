@@ -59,7 +59,7 @@ pub async fn reset_failure_count(
 ) -> impl IntoResponse {
     match state.service.reset_and_enable(id) {
         Ok(_) => Json(SuccessResponse::new(format!(
-            "凭据 #{} 失败计数已重置并重新启用",
+            "凭据 #{} 已重置并启用",
             id
         )))
         .into_response(),
@@ -113,4 +113,23 @@ pub async fn import_credentials(
         Ok(response) => Json(response).into_response(),
         Err(e) => (e.status_code(), Json(e.into_response())).into_response(),
     }
+}
+
+/// GET /api/admin/logs
+/// 获取运行日志
+pub async fn get_logs() -> impl IntoResponse {
+    use crate::logs::LOG_COLLECTOR;
+    let logs = LOG_COLLECTOR.get_logs();
+    Json(serde_json::json!({
+        "logs": logs,
+        "total": logs.len()
+    }))
+}
+
+/// POST /api/admin/logs/clear
+/// 清空日志
+pub async fn clear_logs() -> impl IntoResponse {
+    use crate::logs::LOG_COLLECTOR;
+    LOG_COLLECTOR.clear();
+    Json(super::types::SuccessResponse::new("日志已清空"))
 }

@@ -76,13 +76,50 @@ pub async fn post_messages(
     State(state): State<AppState>,
     JsonExtractor(payload): JsonExtractor<MessagesRequest>,
 ) -> Response {
+    // 记录请求摘要
+    let last_user_msg = payload.messages.iter().rev()
+        .find(|m| m.role == "user")
+        .map(|m| {
+            let content_preview = m.content_preview(100);
+            content_preview
+        })
+        .unwrap_or_default();
+    
+    let system_preview = payload.system.as_ref()
+        .map(|messages| {
+            let combined: String = messages.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join(" ");
+            let char_count = combined.chars().count();
+            if char_count > 50 { 
+                let truncated: String = combined.chars().take(50).collect();
+                format!("{}...", truncated) 
+            } else { 
+                combined 
+            }
+        })
+        .unwrap_or_else(|| "(无)".to_string());
+
     tracing::info!(
         model = %payload.model,
         max_tokens = %payload.max_tokens,
         stream = %payload.stream,
         message_count = %payload.messages.len(),
-        "Received POST /v1/messages request"
+        system = %system_preview,
+        last_user_message = %last_user_msg,
+        "📨 收到 POST /v1/messages 请求"
     );
+
+    // 记录到 Admin UI 日志
+    {
+        use crate::logs::{LOG_COLLECTOR, RequestInfo};
+        LOG_COLLECTOR.add_request_log(RequestInfo {
+            model: payload.model.clone(),
+            max_tokens: payload.max_tokens,
+            stream: payload.stream,
+            message_count: payload.messages.len(),
+            system_preview: system_preview.clone(),
+            user_message_preview: last_user_msg.clone(),
+        });
+    }
     // 检查 KiroProvider 是否可用
     let provider = match &state.kiro_provider {
         Some(p) => p.clone(),
@@ -478,6 +515,39 @@ async fn handle_non_stream_request(
             "output_tokens": output_tokens
         }
     });
+
+    // 记录响应摘要
+    let response_preview = {
+        let char_count = text_content.chars().count();
+        if char_count > 100 {
+            let truncated: String = text_content.chars().take(100).collect();
+            format!("{}...", truncated)
+        } else {
+            text_content.clone()
+        }
+    };
+    tracing::info!(
+        model = %model,
+        input_tokens = %final_input_tokens,
+        output_tokens = %output_tokens,
+        stop_reason = %stop_reason,
+        tool_calls = %has_tool_use,
+        response_preview = %response_preview,
+        "📤 非流式响应完成"
+    );
+
+    // 记录到 Admin UI 日志
+    {
+        use crate::logs::{LOG_COLLECTOR, ResponseInfo};
+        LOG_COLLECTOR.add_response_log(ResponseInfo {
+            model: model.to_string(),
+            input_tokens: final_input_tokens,
+            output_tokens,
+            stop_reason: stop_reason.clone(),
+            has_tool_use,
+            response_preview: response_preview.clone(),
+        }, false);
+    }
 
     (StatusCode::OK, Json(response_body)).into_response()
 }

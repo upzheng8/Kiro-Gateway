@@ -105,3 +105,41 @@ export async function importCredentials(
   });
   return data;
 }
+
+// 日志相关 API
+export interface LogEntry {
+  timestamp: string;
+  level: string;
+  message: string;
+  request?: {
+    model: string;
+    maxTokens: number;
+    stream: boolean;
+    messageCount: number;
+    systemPreview: string;
+    userMessagePreview: string;
+  };
+  response?: {
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    stopReason: string;
+    hasToolUse: boolean;
+    responsePreview: string;
+  };
+}
+
+export interface LogsResponse {
+  logs: LogEntry[];
+  total: number;
+}
+
+export async function getLogs(): Promise<LogsResponse> {
+  const { data } = await api.get<LogsResponse>("/logs");
+  return data;
+}
+
+export async function clearLogs(): Promise<SuccessResponse> {
+  const { data } = await api.post<SuccessResponse>("/logs/clear");
+  return data;
+}
