@@ -85,9 +85,14 @@ export function Dashboard(_props: DashboardProps) {
   })
 
   // 配置状态
-  const [configHost, setConfigHost] = useState('127.0.0.1')
-  const [configPort, setConfigPort] = useState('8990')
-  const [configApiKey, setConfigApiKey] = useState('sk-kiro-rs-qazWSXedcRFV123456')
+  const [configHost, setConfigHost] = useState('')
+  const [configPort, setConfigPort] = useState('')
+  const [configApiKey, setConfigApiKey] = useState('')
+  const [configLoading, setConfigLoading] = useState(true)
+  const [configSaving, setConfigSaving] = useState(false)
+  
+  // 导入状态
+  const [importing, setImporting] = useState(false)
   
   // 日志状态 - 使用 LogEntry 类型
   const [logs, setLogs] = useState<import('@/api/credentials').LogEntry[]>([])
@@ -125,6 +130,27 @@ export function Dashboard(_props: DashboardProps) {
         clearInterval(logIntervalRef.current)
       }
     }
+  }, [])
+
+  // 启动时从后端加载配置
+  useEffect(() => {
+    const loadConfig = async () => {
+      try {
+        const { getConfig } = await import('@/api/credentials')
+        const config = await getConfig()
+        setConfigHost(config.host)
+        setConfigPort(config.port.toString())
+        setConfigApiKey(config.apiKey || '')
+      } catch (e) {
+        // 忽略错误，使用默认值
+        setConfigHost('127.0.0.1')
+        setConfigPort('8990')
+        setConfigApiKey('')
+      } finally {
+        setConfigLoading(false)
+      }
+    }
+    loadConfig()
   }, [])
 
   // 加载凭证列表后获取余额
@@ -192,20 +218,36 @@ export function Dashboard(_props: DashboardProps) {
     setLocalLogs(prev => [...prev.slice(-199), `[${timestamp}] ${message}`])
   }
 
-  const handleSaveConfig = () => {
+  const handleSaveConfig = async () => {
     const port = parseInt(configPort, 10)
     if (isNaN(port) || port < 1 || port > 65535) {
       toast.error('端口号必须是 1-65535 之间的数字')
       return
     }
-    toast.success('配置已保存')
-    addLog('[System] 配置已保存')
+    
+    setConfigSaving(true)
+    try {
+      const { updateConfig } = await import('@/api/credentials')
+      const result = await updateConfig({
+        host: configHost,
+        port: port,
+        apiKey: configApiKey || undefined,
+      })
+      toast.success(result.message)
+      addLog('[System] 配置已保存')
+    } catch (e) {
+      toast.error('保存配置失败')
+      addLog('[Error] 保存配置失败')
+    } finally {
+      setConfigSaving(false)
+    }
   }
 
   const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
 
+    setImporting(true)
     try {
       const text = await file.text()
       const jsonData = JSON.parse(text)
@@ -242,6 +284,7 @@ export function Dashboard(_props: DashboardProps) {
       }
       addLog(`[Error] 导入失败: ${error.message}`)
     } finally {
+      setImporting(false)
       // 清空文件输入，允许重复选择同一文件
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
@@ -400,9 +443,18 @@ export function Dashboard(_props: DashboardProps) {
                   <RefreshCw className="h-4 w-4 mr-1" />
                   刷新
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleSelectFile}>
-                  <FolderOpen className="h-4 w-4 mr-1" />
-                  导入凭证
+                <Button variant="outline" size="sm" onClick={handleSelectFile} disabled={importing}>
+                  {importing ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                      导入中...
+                    </>
+                  ) : (
+                    <>
+                      <FolderOpen className="h-4 w-4 mr-1" />
+                      导入凭证
+                    </>
+                  )}
                 </Button>
                 <Button size="sm" onClick={() => setAddDialogOpen(true)}>
                   <Plus className="h-4 w-4 mr-1" />
@@ -411,9 +463,18 @@ export function Dashboard(_props: DashboardProps) {
               </>
             )}
             {activeTab === 'config' && (
-              <Button size="sm" onClick={handleSaveConfig}>
-                <Save className="h-4 w-4 mr-1" />
-                保存配置
+              <Button size="sm" onClick={handleSaveConfig} disabled={configSaving || configLoading}>
+                {configSaving ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                    保存中...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-1" />
+                    保存配置
+                  </>
+                )}
               </Button>
             )}
             {activeTab === 'logs' && (
@@ -622,6 +683,7 @@ export function Dashboard(_props: DashboardProps) {
                       value={configHost}
                       onChange={setConfigHost}
                       placeholder="127.0.0.1"
+                      disabled={configLoading}
                     />
                     <FormInput
                       label="监听端口"
@@ -629,6 +691,7 @@ export function Dashboard(_props: DashboardProps) {
                       onChange={setConfigPort}
                       type="number"
                       placeholder="8990"
+                      disabled={configLoading}
                     />
                     <div className="col-span-2">
                       <FormInput
@@ -636,6 +699,7 @@ export function Dashboard(_props: DashboardProps) {
                         value={configApiKey}
                         onChange={setConfigApiKey}
                         placeholder="sk-..."
+                        disabled={configLoading}
                       />
                     </div>
                   </div>

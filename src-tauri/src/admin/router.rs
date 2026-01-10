@@ -9,7 +9,7 @@ use super::{
     handlers::{
         add_credential, delete_credential, get_all_credentials, get_credential_balance,
         reset_failure_count, set_credential_disabled, set_credential_priority, import_credentials,
-        get_logs, clear_logs,
+        get_logs, clear_logs, get_config, update_config,
     },
     middleware::AdminState,
 };
@@ -27,6 +27,8 @@ use super::{
 /// - `GET /credentials/:id/balance` - 获取凭证余额
 /// - `GET /logs` - 获取运行日志
 /// - `POST /logs/clear` - 清空日志
+/// - `GET /config` - 获取配置
+/// - `POST /config` - 更新配置
 ///
 /// # 认证
 /// 需要 Admin API Key 认证，支持：
@@ -46,6 +48,7 @@ pub fn create_admin_router(state: AdminState) -> Router {
         .route("/credentials/{id}/balance", get(get_credential_balance))
         .route("/logs", get(get_logs))
         .route("/logs/clear", post(clear_logs))
+        .route("/config", get(get_config).post(update_config))
         // 移除 API Key 认证中间件
         .with_state(state)
 }

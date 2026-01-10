@@ -100,9 +100,12 @@ export interface ImportCredentialsResponse {
 export async function importCredentials(
   credentials: ImportCredentialItem[]
 ): Promise<ImportCredentialsResponse> {
-  const { data } = await api.post<ImportCredentialsResponse>("/credentials/import", {
-    credentials,
-  });
+  const { data } = await api.post<ImportCredentialsResponse>(
+    "/credentials/import",
+    {
+      credentials,
+    }
+  );
   return data;
 }
 
@@ -141,5 +144,32 @@ export async function getLogs(): Promise<LogsResponse> {
 
 export async function clearLogs(): Promise<SuccessResponse> {
   const { data } = await api.post<SuccessResponse>("/logs/clear");
+  return data;
+}
+
+// 配置相关 API
+export interface ConfigResponse {
+  host: string;
+  port: number;
+  apiKey: string | null;
+  region: string;
+}
+
+export interface UpdateConfigRequest {
+  host?: string;
+  port?: number;
+  apiKey?: string;
+  region?: string;
+}
+
+export async function getConfig(): Promise<ConfigResponse> {
+  const { data } = await api.get<ConfigResponse>("/config");
+  return data;
+}
+
+export async function updateConfig(
+  req: UpdateConfigRequest
+): Promise<SuccessResponse> {
+  const { data } = await api.post<SuccessResponse>("/config", req);
   return data;
 }

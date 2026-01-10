@@ -133,3 +133,89 @@ pub async fn clear_logs() -> impl IntoResponse {
     LOG_COLLECTOR.clear();
     Json(super::types::SuccessResponse::new("日志已清空"))
 }
+
+/// GET /api/admin/config
+/// 获取当前配置
+pub async fn get_config() -> impl IntoResponse {
+    use crate::model::config::Config;
+    use super::types::GetConfigResponse;
+    
+    // 获取配置文件路径
+    let config_path = get_config_path();
+    
+    match Config::load(&config_path) {
+        Ok(config) => {
+            let response = GetConfigResponse {
+                host: config.host,
+                port: config.port,
+                api_key: config.api_key,
+                region: config.region,
+            };
+            Json(serde_json::json!(response)).into_response()
+        }
+        Err(e) => {
+            let error = super::types::AdminErrorResponse::internal_error(format!("读取配置失败: {}", e));
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response()
+        }
+    }
+}
+
+/// POST /api/admin/config
+/// 更新配置
+pub async fn update_config(
+    Json(payload): Json<super::types::UpdateConfigRequest>,
+) -> impl IntoResponse {
+    use crate::model::config::Config;
+    use super::types::SuccessResponse;
+    
+    let config_path = get_config_path();
+    
+    // 先读取现有配置
+    let mut config = match Config::load(&config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            let error = super::types::AdminErrorResponse::internal_error(format!("读取配置失败: {}", e));
+            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response();
+        }
+    };
+    
+    // 更新字段
+    if let Some(host) = payload.host {
+        config.host = host;
+    }
+    if let Some(port) = payload.port {
+        config.port = port;
+    }
+    if let Some(api_key) = payload.api_key {
+        config.api_key = Some(api_key);
+    }
+    if let Some(region) = payload.region {
+        config.region = region;
+    }
+    
+    // 保存配置
+    match config.save(&config_path) {
+        Ok(_) => {
+            tracing::info!("配置已更新并保存到: {:?}", config_path);
+            Json(SuccessResponse::new("配置已保存（需要重启服务生效）")).into_response()
+        }
+        Err(e) => {
+            let error = super::types::AdminErrorResponse::internal_error(format!("保存配置失败: {}", e));
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response()
+        }
+    }
+}
+
+/// 获取配置文件路径
+fn get_config_path() -> std::path::PathBuf {
+    if let Some(home_dir) = dirs::home_dir() {
+        home_dir.join(".kiro-gateway").join("config.json")
+    } else if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            return exe_dir.join("config.json");
+        }
+        std::path::PathBuf::from("config.json")
+    } else {
+        std::path::PathBuf::from("config.json")
+    }
+}

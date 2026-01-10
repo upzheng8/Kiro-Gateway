@@ -217,3 +217,33 @@ impl AdminErrorResponse {
         Self::new("internal_error", message)
     }
 }
+
+// ============ 配置 API ============
+
+/// 获取配置响应
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetConfigResponse {
+    /// 监听地址
+    pub host: String,
+    /// 监听端口
+    pub port: u16,
+    /// API 密钥
+    pub api_key: Option<String>,
+    /// AWS 区域
+    pub region: String,
+}
+
+/// 更新配置请求
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateConfigRequest {
+    /// 监听地址（可选）
+    pub host: Option<String>,
+    /// 监听端口（可选）
+    pub port: Option<u16>,
+    /// API 密钥（可选）
+    pub api_key: Option<String>,
+    /// AWS 区域（可选）
+    pub region: Option<String>,
+}
