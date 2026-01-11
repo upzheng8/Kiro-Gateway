@@ -308,7 +308,7 @@ pub(crate) async fn get_usage_limits(
 
     // 构建 URL
     let mut url = format!(
-        "https://{}/getUsageLimits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST",
+        "https://{}/getUsageLimits?isEmailRequired=true&origin=AI_EDITOR&resourceType=AGENTIC_REQUEST",
         host
     );
 
@@ -397,6 +397,28 @@ pub struct CredentialEntrySnapshot {
     pub has_profile_arn: bool,
     /// Token 过期时间
     pub expires_at: Option<String>,
+    /// 用户邮箱
+    pub email: Option<String>,
+    /// 订阅类型
+    pub subscription_title: Option<String>,
+    /// 当前使用量
+    pub current_usage: Option<f64>,
+    /// 使用限额
+    pub usage_limit: Option<f64>,
+    /// 剩余额度
+    pub remaining: Option<f64>,
+    /// 下次重置时间
+    pub next_reset_at: Option<f64>,
+    /// Refresh Token
+    pub refresh_token: Option<String>,
+    /// Access Token
+    pub access_token: Option<String>,
+    /// Profile ARN
+    pub profile_arn: Option<String>,
+    /// 凭证状态：normal(正常), invalid(无效/封禁), expired(过期)
+    pub status: String,
+    /// 分组 ID
+    pub group_id: String,
 }
 
 /// 凭证管理器状态快照
@@ -554,6 +576,24 @@ impl MultiTokenManager {
     /// 获取可用凭证数量
     pub fn available_count(&self) -> usize {
         self.entries.lock().iter().filter(|e| !e.disabled).count()
+    }
+
+    /// 获取用于导出的凭证数据
+    /// 
+    /// # Arguments
+    /// * `ids` - 要导出的凭证 ID 列表，为空则导出全部
+    ///
+    /// # Returns
+    /// 凭证列表（包含完整数据）
+    pub fn get_credentials_for_export(&self, ids: &[u64]) -> Vec<KiroCredentials> {
+        let entries = self.entries.lock();
+        let id_set: std::collections::HashSet<u64> = ids.iter().cloned().collect();
+        
+        entries
+            .iter()
+            .filter(|e| id_set.is_empty() || id_set.contains(&e.id))
+            .map(|e| e.credentials.clone())
+            .collect()
     }
 
     /// 获取 API 调用上下文
@@ -801,6 +841,21 @@ impl MultiTokenManager {
         }
     }
 
+    /// 设置凭证分组（Admin API）
+    pub fn set_group(&self, id: u64, group_id: &str) -> anyhow::Result<()> {
+        {
+            let mut entries = self.entries.lock();
+            let entry = entries
+                .iter_mut()
+                .find(|e| e.id == id)
+                .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?;
+            entry.credentials.group_id = group_id.to_string();
+        }
+        // 持久化更改
+        self.persist_credentials()?;
+        Ok(())
+    }
+
     /// 报告指定凭证 API 调用失败
     ///
     /// 增加失败计数，达到阈值时禁用凭证并切换到优先级最高的可用凭证
@@ -912,6 +967,17 @@ impl MultiTokenManager {
                     auth_method: e.credentials.auth_method.clone(),
                     has_profile_arn: e.credentials.profile_arn.is_some(),
                     expires_at: e.credentials.expires_at.clone(),
+                    email: e.credentials.email.clone(),
+                    subscription_title: e.credentials.subscription_title.clone(),
+                    current_usage: e.credentials.current_usage,
+                    usage_limit: e.credentials.usage_limit,
+                    remaining: e.credentials.remaining,
+                    next_reset_at: e.credentials.next_reset_at,
+                    refresh_token: e.credentials.refresh_token.clone(),
+                    access_token: e.credentials.access_token.clone(),
+                    profile_arn: e.credentials.profile_arn.clone(),
+                    status: e.credentials.status.clone(),
+                    group_id: e.credentials.group_id.clone(),
                 })
                 .collect(),
             current_id,
@@ -970,6 +1036,51 @@ impl MultiTokenManager {
             entry.failure_count = 0;
             entry.disabled = false;
         }
+        // 持久化更改
+        self.persist_credentials()?;
+        Ok(())
+    }
+
+    /// 更新凭证状态（Admin API）
+    pub fn update_status(&self, id: u64, status: &str) -> anyhow::Result<()> {
+        {
+            let mut entries = self.entries.lock();
+            let entry = entries
+                .iter_mut()
+                .find(|e| e.id == id)
+                .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?;
+            entry.credentials.status = status.to_string();
+        }
+        // 持久化更改
+        self.persist_credentials()?;
+        Ok(())
+    }
+
+    /// 刷新指定凭证的 Token（Admin API）
+    pub async fn refresh_token_for(&self, id: u64) -> anyhow::Result<()> {
+        let credentials = {
+            let entries = self.entries.lock();
+            entries
+                .iter()
+                .find(|e| e.id == id)
+                .map(|e| e.credentials.clone())
+                .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?
+        };
+
+        // 刷新 Token
+        let new_credentials = refresh_token(&credentials, &self.config, self.proxy.as_ref()).await?;
+
+        // 更新凭证（刷新成功，状态设为 normal）
+        {
+            let mut entries = self.entries.lock();
+            if let Some(entry) = entries.iter_mut().find(|e| e.id == id) {
+                entry.credentials.access_token = new_credentials.access_token;
+                entry.credentials.expires_at = new_credentials.expires_at;
+                entry.credentials.profile_arn = new_credentials.profile_arn.or(entry.credentials.profile_arn.clone());
+                entry.credentials.status = "normal".to_string();
+            }
+        }
+
         // 持久化更改
         self.persist_credentials()?;
         Ok(())
@@ -1036,7 +1147,45 @@ impl MultiTokenManager {
                 .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?
         };
 
-        get_usage_limits(&credentials, &self.config, &token, self.proxy.as_ref()).await
+        let usage = get_usage_limits(&credentials, &self.config, &token, self.proxy.as_ref()).await?;
+        
+        // 更新凭证的缓存信息（email、subscription、余额）
+        let email = usage.email().map(|s| s.to_string());
+        let subscription_title = usage.subscription_title().map(|s| s.to_string());
+        let current_usage = usage.current_usage();
+        let usage_limit_val = usage.usage_limit();
+        let remaining = (usage_limit_val - current_usage).max(0.0);
+        let next_reset_at = usage.next_date_reset;
+        
+        {
+            let mut entries = self.entries.lock();
+            if let Some(entry) = entries.iter_mut().find(|e| e.id == id) {
+                let mut changed = false;
+                if email.is_some() && entry.credentials.email != email {
+                    entry.credentials.email = email;
+                    changed = true;
+                }
+                if subscription_title.is_some() && entry.credentials.subscription_title != subscription_title {
+                    entry.credentials.subscription_title = subscription_title;
+                    changed = true;
+                }
+                // 更新余额信息
+                entry.credentials.current_usage = Some(current_usage);
+                entry.credentials.usage_limit = Some(usage_limit_val);
+                entry.credentials.remaining = Some(remaining);
+                entry.credentials.next_reset_at = next_reset_at;
+                changed = true;
+                
+                if changed {
+                    drop(entries);
+                    if let Err(e) = self.persist_credentials() {
+                        tracing::warn!("更新缓存信息后持久化失败: {}", e);
+                    }
+                }
+            }
+        }
+        
+        Ok(usage)
     }
 
     /// 添加新凭证（Admin API）
@@ -1102,39 +1251,37 @@ impl MultiTokenManager {
         self.persist_credentials()?;
 
         tracing::info!("成功添加凭证 #{}", new_id);
+
+        // 7. 获取余额信息（异步，不影响添加结果）
+        // 这会在后台更新 email、subscription、balance 等信息
+        if let Err(e) = self.get_usage_limits_for(new_id).await {
+            tracing::warn!("添加凭证 #{} 后获取余额失败: {}", new_id, e);
+        }
+
         Ok(new_id)
     }
 
     /// 删除凭证（Admin API）
     ///
-    /// # 前置条件
-    /// - 凭证必须已禁用（disabled = true）
-    ///
     /// # 行为
     /// 1. 验证凭证存在
-    /// 2. 验证凭证已禁用
-    /// 3. 从 entries 移除
-    /// 4. 如果删除的是当前凭证，切换到优先级最高的可用凭证
-    /// 5. 如果删除后没有凭证，将 current_id 重置为 0
-    /// 6. 持久化到文件
+    /// 2. 从 entries 移除
+    /// 3. 如果删除的是当前凭证，切换到优先级最高的可用凭证
+    /// 4. 如果删除后没有凭证，将 current_id 重置为 0
+    /// 5. 持久化到文件
     ///
     /// # 返回
     /// - `Ok(())` - 删除成功
-    /// - `Err(_)` - 凭证不存在、未禁用或持久化失败
+    /// - `Err(_)` - 凭证不存在或持久化失败
     pub fn delete_credential(&self, id: u64) -> anyhow::Result<()> {
         let was_current = {
             let mut entries = self.entries.lock();
 
             // 查找凭证
-            let entry = entries
+            let _entry = entries
                 .iter()
                 .find(|e| e.id == id)
                 .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?;
-
-            // 检查是否已禁用
-            if !entry.disabled {
-                anyhow::bail!("只能删除已禁用的凭证（请先禁用凭证 #{}）", id);
-            }
 
             // 记录是否是当前凭证
             let current_id = *self.current_id.lock();

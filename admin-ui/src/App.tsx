@@ -5,7 +5,7 @@ function App() {
   return (
     <>
       <Dashboard onLogout={() => {}} />
-      <Toaster position="top-right" />
+      <Toaster position="top-right" offset="60px" />
     </>
   )
 }

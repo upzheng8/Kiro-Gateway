@@ -1,6 +1,7 @@
 //! Anthropic API 中间件
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use axum::{
     body::Body,
@@ -25,6 +26,8 @@ pub struct AppState {
     pub kiro_provider: Option<Arc<KiroProvider>>,
     /// Profile ARN（可选，用于请求）
     pub profile_arn: Option<String>,
+    /// 代理服务是否启用
+    pub proxy_enabled: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -34,6 +37,7 @@ impl AppState {
             api_key: api_key.into(),
             kiro_provider: None,
             profile_arn: None,
+            proxy_enabled: Arc::new(AtomicBool::new(true)),
         }
     }
 
@@ -48,6 +52,17 @@ impl AppState {
         self.profile_arn = Some(arn.into());
         self
     }
+    
+    /// 设置代理启用状态
+    pub fn with_proxy_enabled(mut self, enabled: Arc<AtomicBool>) -> Self {
+        self.proxy_enabled = enabled;
+        self
+    }
+    
+    /// 检查代理是否启用
+    pub fn is_proxy_enabled(&self) -> bool {
+        self.proxy_enabled.load(Ordering::SeqCst)
+    }
 }
 
 /// API Key 认证中间件
@@ -56,6 +71,17 @@ pub async fn auth_middleware(
     request: Request<Body>,
     next: Next,
 ) -> Response {
+    // 首先检查代理服务是否启用
+    if !state.is_proxy_enabled() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ErrorResponse::new(
+                "service_unavailable".to_string(),
+                "Proxy service is currently disabled".to_string(),
+            ))
+        ).into_response();
+    }
+    
     match auth::extract_api_key(&request) {
         Some(key) if auth::constant_time_eq(&key, &state.api_key) => next.run(request).await,
         _ => {

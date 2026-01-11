@@ -14,15 +14,27 @@ pub mod token;
 mod kiro_server;
 
 use clap::Parser;
-use std::thread;
 use std::path::PathBuf;
+use std::sync::Arc;
 use model::arg::Args;
 use tauri::Manager;
+use tokio::sync::{Mutex, watch};
 
 #[derive(Parser, Debug)]
 struct MainArgs {
     #[command(flatten)]
     server_args: Args,
+}
+
+/// 服务器状态
+#[derive(Clone)]
+struct ServerState {
+    config_path: String,
+    credentials_path: String,
+    /// 服务器停止信号发送端
+    shutdown_tx: Arc<Mutex<Option<watch::Sender<bool>>>>,
+    /// 服务器运行状态
+    is_running: Arc<Mutex<bool>>,
 }
 
 /// 获取配置文件目录（使用用户目录下的 .kiro-gateway 文件夹）
@@ -79,6 +91,91 @@ fn ensure_credentials_file(path: &PathBuf) {
     }
 }
 
+// ============ Tauri Commands ============
+
+/// 获取服务器状态
+#[tauri::command]
+async fn get_server_status(state: tauri::State<'_, ServerState>) -> Result<serde_json::Value, String> {
+    let is_running = *state.is_running.lock().await;
+    
+    // 读取配置获取监听地址
+    let config = match model::config::Config::load(&state.config_path) {
+        Ok(c) => c,
+        Err(e) => return Err(format!("读取配置失败: {}", e)),
+    };
+    
+    Ok(serde_json::json!({
+        "isRunning": is_running,
+        "host": config.host,
+        "port": config.port
+    }))
+}
+
+/// 启动服务器
+#[tauri::command]
+async fn start_proxy_server(state: tauri::State<'_, ServerState>) -> Result<String, String> {
+    let mut is_running = state.is_running.lock().await;
+    
+    if *is_running {
+        return Err("服务器已在运行中".to_string());
+    }
+    
+    let config_path = state.config_path.clone();
+    let credentials_path = state.credentials_path.clone();
+    let shutdown_tx = state.shutdown_tx.clone();
+    let is_running_flag = state.is_running.clone();
+    
+    // 创建新的 shutdown channel
+    let (tx, rx) = watch::channel(false);
+    {
+        let mut shutdown = shutdown_tx.lock().await;
+        *shutdown = Some(tx);
+    }
+    
+    // 标记为运行中
+    *is_running = true;
+    
+    // 在新线程中启动服务器
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+            
+        rt.block_on(async {
+            if let Err(e) = kiro_server::run_server(config_path, credentials_path, rx).await {
+                eprintln!("Server Error: {}", e);
+            }
+            
+            // 服务器停止后更新状态
+            let mut running = is_running_flag.lock().await;
+            *running = false;
+        });
+    });
+    
+    Ok("服务器已启动".to_string())
+}
+
+/// 停止服务器
+#[tauri::command]
+async fn stop_proxy_server(state: tauri::State<'_, ServerState>) -> Result<String, String> {
+    let mut is_running = state.is_running.lock().await;
+    
+    if !*is_running {
+        return Err("服务器未运行".to_string());
+    }
+    
+    // 发送停止信号
+    let shutdown_tx = state.shutdown_tx.lock().await;
+    if let Some(tx) = shutdown_tx.as_ref() {
+        tx.send(true).map_err(|e| format!("发送停止信号失败: {}", e))?;
+    }
+    
+    *is_running = false;
+    
+    Ok("服务器已停止".to_string())
+}
+
 fn main() {
     // 初始化日志
     tracing_subscriber::fmt()
@@ -114,31 +211,49 @@ fn main() {
     let config_path_str = config_path.to_string_lossy().to_string();
     let credentials_path_str = credentials_path.to_string_lossy().to_string();
 
-    // Spawn the Kiro Server in a separate thread
-    thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-            
-        rt.block_on(async {
-            let (_tx, rx) = tokio::sync::watch::channel(false);
-            
-            if let Err(e) = kiro_server::run_server(config_path_str, credentials_path_str, rx).await {
-                eprintln!("Server Error: {}", e);
-            }
-        });
-    });
+    // 创建服务器状态（不自动启动）
+    let server_state = ServerState {
+        config_path: config_path_str,
+        credentials_path: credentials_path_str,
+        shutdown_tx: Arc::new(Mutex::new(None)),
+        is_running: Arc::new(Mutex::new(false)),
+    };
 
     // Run Tauri Application
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .manage(server_state)
+        .invoke_handler(tauri::generate_handler![
+            get_server_status,
+            start_proxy_server,
+            stop_proxy_server,
+        ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
             
             // Optional: Open DevTools in debug mode
             #[cfg(debug_assertions)]
             window.open_devtools();
+            
+            // 自动启动 Admin API 服务器（不包含反代）
+            let server_state: tauri::State<ServerState> = app.state();
+            let config_path = server_state.config_path.clone();
+            let credentials_path = server_state.credentials_path.clone();
+            
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                    
+                rt.block_on(async {
+                    if let Err(e) = kiro_server::run_admin_server(config_path, credentials_path).await {
+                        eprintln!("Admin Server Error: {}", e);
+                    }
+                });
+            });
             
             Ok(())
         })

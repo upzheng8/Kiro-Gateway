@@ -1,5 +1,8 @@
 //! Anthropic API 路由配置
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use axum::{
     Router, middleware,
     routing::{get, post},
@@ -41,6 +44,38 @@ pub fn create_router_with_provider(
     if let Some(arn) = profile_arn {
         state = state.with_profile_arn(arn);
     }
+
+    // 需要认证的 /v1 路由
+    let v1_routes = Router::new()
+        .route("/models", get(get_models))
+        .route("/messages", post(post_messages))
+        .route("/messages/count_tokens", post(count_tokens))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
+
+    Router::new()
+        .nest("/v1", v1_routes)
+        .layer(cors_layer())
+        .with_state(state)
+}
+
+/// 创建带有 KiroProvider 和代理控制的 Anthropic API 路由
+pub fn create_router_with_provider_and_control(
+    api_key: impl Into<String>,
+    kiro_provider: Option<KiroProvider>,
+    profile_arn: Option<String>,
+    proxy_enabled: Arc<AtomicBool>,
+) -> Router {
+    let mut state = AppState::new(api_key);
+    if let Some(provider) = kiro_provider {
+        state = state.with_kiro_provider(provider);
+    }
+    if let Some(arn) = profile_arn {
+        state = state.with_profile_arn(arn);
+    }
+    state = state.with_proxy_enabled(proxy_enabled);
 
     // 需要认证的 /v1 路由
     let v1_routes = Router::new()

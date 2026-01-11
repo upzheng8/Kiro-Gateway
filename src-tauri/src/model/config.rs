@@ -58,6 +58,37 @@ pub struct Config {
     /// Admin API 密钥（可选，启用 Admin API 功能）
     #[serde(default)]
     pub admin_api_key: Option<String>,
+
+    /// 锁定的模型名称（可选，仅影响客户端操作）
+    #[serde(default)]
+    pub locked_model: Option<String>,
+
+    /// 机器码备份（可选，用于恢复）
+    #[serde(default)]
+    pub machine_id_backup: Option<String>,
+
+    /// 分组列表（id -> 名称映射）
+    #[serde(default = "default_groups")]
+    pub groups: Vec<GroupConfig>,
+
+    /// 反代使用的分组 ID（为空表示使用所有分组）
+    #[serde(default)]
+    pub active_group_id: Option<String>,
+}
+
+/// 分组配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupConfig {
+    pub id: String,
+    pub name: String,
+}
+
+fn default_groups() -> Vec<GroupConfig> {
+    vec![GroupConfig {
+        id: "default".to_string(),
+        name: "默认分组".to_string(),
+    }]
 }
 
 fn default_host() -> String {
@@ -107,6 +138,10 @@ impl Default for Config {
             proxy_username: None,
             proxy_password: None,
             admin_api_key: None,
+            locked_model: None,
+            machine_id_backup: None,
+            groups: default_groups(),
+            active_group_id: None,
         }
     }
 }

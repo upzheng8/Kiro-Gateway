@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import {
   Dialog,
@@ -8,178 +8,263 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { useAddCredential } from '@/hooks/use-credentials'
-import { extractErrorMessage } from '@/lib/utils'
+import { importCredentials, ImportCredentialItem, importLocalCredential } from '@/api/credentials'
+import { useQueryClient } from '@tanstack/react-query'
+import { RefreshCw, Save } from 'lucide-react'
+
+interface GroupInfo {
+  id: string;
+  name: string;
+}
 
 interface AddCredentialDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onImportStart?: () => void
+  onImportProgress?: (current: number, total: number) => void
+  onImportEnd?: () => void
+  /** 当前选中的分组 ID，用于新增凭证时的默认分组 */
+  selectedGroupId?: string
+  /** 可用的分组列表 */
+  groups?: GroupInfo[]
 }
 
-type AuthMethod = 'social' | 'idc' | 'builder-id'
+export function AddCredentialDialog({ 
+  open, 
+  onOpenChange,
+  onImportStart,
+  onImportProgress,
+  onImportEnd,
+  selectedGroupId,
+  groups = [],
+}: AddCredentialDialogProps) {
+  const [batchInput, setBatchInput] = useState('')
+  const [savingLocal, setSavingLocal] = useState(false)
+  // 本地选择的分组（默认使用传入的 selectedGroupId）
+  const [localGroupId, setLocalGroupId] = useState(selectedGroupId || 'default')
+  const queryClient = useQueryClient()
 
-export function AddCredentialDialog({ open, onOpenChange }: AddCredentialDialogProps) {
-  const [refreshToken, setRefreshToken] = useState('')
-  const [authMethod, setAuthMethod] = useState<AuthMethod>('social')
-  const [clientId, setClientId] = useState('')
-  const [clientSecret, setClientSecret] = useState('')
-  const [priority, setPriority] = useState('0')
-
-  const { mutate, isPending } = useAddCredential()
+  // 当对话框打开时，同步 selectedGroupId 到 localGroupId
+  useEffect(() => {
+    if (open && selectedGroupId && selectedGroupId !== 'all') {
+      setLocalGroupId(selectedGroupId)
+    }
+  }, [open, selectedGroupId])
 
   const resetForm = () => {
-    setRefreshToken('')
-    setAuthMethod('social')
-    setClientId('')
-    setClientSecret('')
-    setPriority('0')
+    setBatchInput('')
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  // 保存本地账号
+  const handleSaveLocal = async () => {
+    setSavingLocal(true)
+    try {
+      const result = await importLocalCredential()
+      toast.success(result.message)
+      queryClient.invalidateQueries({ queryKey: ['credentials'] })
+      onOpenChange(false)
+      resetForm()
+    } catch (e: any) {
+      toast.error(e.response?.data?.error?.message || '保存本地账号失败')
+    } finally {
+      setSavingLocal(false)
+    }
+  }
 
-    // 验证必填字段
-    if (!refreshToken.trim()) {
-      toast.error('请输入 Refresh Token')
+  // 批量新增
+  const handleBatchImport = async () => {
+    const input = batchInput.trim()
+    if (!input) {
+      toast.error('请输入凭证数据')
       return
     }
 
-    // IdC/Builder-ID 需要额外字段
-    if ((authMethod === 'idc' || authMethod === 'builder-id') &&
-        (!clientId.trim() || !clientSecret.trim())) {
-      toast.error('IdC/Builder-ID 认证需要填写 Client ID 和 Client Secret')
+    let items: ImportCredentialItem[] = []
+    
+    // 使用本地选择的分组
+    const targetGroupId = localGroupId === 'all' ? 'default' : localGroupId
+    
+    // 尝试解析为 JSON
+    try {
+      const parsed = JSON.parse(input)
+      const list = Array.isArray(parsed) ? parsed : [parsed]
+      items = list.map((item: any) => ({
+        refreshToken: item.refreshToken || item.refresh_token || item,
+        authMethod: item.authMethod || item.auth_method || 'social',
+        priority: item.priority || 0,
+        groupId: targetGroupId,
+      })).filter((item: ImportCredentialItem) => item.refreshToken && typeof item.refreshToken === 'string')
+    } catch {
+      // 不是 JSON，按行分割处理
+      const lines = input.split('\n').map(l => l.trim()).filter(l => l)
+      items = lines.map((token: string) => ({
+        refreshToken: token,
+        authMethod: 'social',
+        priority: 0,
+        groupId: targetGroupId,
+      }))
+    }
+
+    if (items.length === 0) {
+      toast.error('没有有效的凭证数据')
       return
     }
 
-    mutate(
-      {
-        refreshToken: refreshToken.trim(),
-        authMethod,
-        clientId: clientId.trim() || undefined,
-        clientSecret: clientSecret.trim() || undefined,
-        priority: parseInt(priority) || 0,
-      },
-      {
-        onSuccess: (data) => {
-          toast.success(data.message)
-          onOpenChange(false)
-          resetForm()
-        },
-        onError: (error: unknown) => {
-          toast.error(`添加失败: ${extractErrorMessage(error)}`)
-        },
-      }
-    )
+    // 关闭对话框，通知父组件开始导入
+    onOpenChange(false)
+    onImportStart?.()
+    onImportProgress?.(0, items.length)
+    
+    // 分批添加，每批最多 10 个
+    const batchSize = 10
+    let completed = 0
+    let successCount = 0
+    let failCount = 0
+    
+    for (let i = 0; i < items.length; i += batchSize) {
+      const batch = items.slice(i, i + batchSize)
+      
+      await Promise.all(
+        batch.map(async (item) => {
+          try {
+            await importCredentials([item])
+            successCount++
+          } catch {
+            failCount++
+          }
+          completed++
+          onImportProgress?.(completed, items.length)
+        })
+      )
+    }
+    
+    onImportEnd?.()
+    queryClient.invalidateQueries({ queryKey: ['credentials'] })
+    resetForm()
+    
+    if (failCount > 0) {
+      toast.warning(`导入完成: ${successCount} 成功, ${failCount} 失败`)
+    } else {
+      toast.success(`已添加 ${successCount} 个凭证`)
+    }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
+        <DialogHeader className="flex-row items-center justify-between pr-8">
           <DialogTitle>添加凭证</DialogTitle>
-        </DialogHeader>
-
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-4 py-4">
-            {/* Refresh Token */}
-            <div className="space-y-2">
-              <label htmlFor="refreshToken" className="text-sm font-medium">
-                Refresh Token <span className="text-red-500">*</span>
-              </label>
-              <Input
-                id="refreshToken"
-                type="password"
-                placeholder="请输入 Refresh Token"
-                value={refreshToken}
-                onChange={(e) => setRefreshToken(e.target.value)}
-                disabled={isPending}
-              />
-            </div>
-
-            {/* 认证方式 */}
-            <div className="space-y-2">
-              <label htmlFor="authMethod" className="text-sm font-medium">
-                认证方式
-              </label>
-              <select
-                id="authMethod"
-                value={authMethod}
-                onChange={(e) => setAuthMethod(e.target.value as AuthMethod)}
-                disabled={isPending}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <option value="social">Social</option>
-                <option value="idc">IdC</option>
-                <option value="builder-id">Builder-ID</option>
-              </select>
-            </div>
-
-            {/* IdC/Builder-ID 额外字段 */}
-            {(authMethod === 'idc' || authMethod === 'builder-id') && (
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={handleSaveLocal}
+            disabled={savingLocal}
+          >
+            {savingLocal ? (
               <>
-                <div className="space-y-2">
-                  <label htmlFor="clientId" className="text-sm font-medium">
-                    Client ID <span className="text-red-500">*</span>
-                  </label>
-                  <Input
-                    id="clientId"
-                    placeholder="请输入 Client ID"
-                    value={clientId}
-                    onChange={(e) => setClientId(e.target.value)}
-                    disabled={isPending}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label htmlFor="clientSecret" className="text-sm font-medium">
-                    Client Secret <span className="text-red-500">*</span>
-                  </label>
-                  <Input
-                    id="clientSecret"
-                    type="password"
-                    placeholder="请输入 Client Secret"
-                    value={clientSecret}
-                    onChange={(e) => setClientSecret(e.target.value)}
-                    disabled={isPending}
-                  />
-                </div>
+                <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                保存中...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-1" />
+                保存本地账号
               </>
             )}
+          </Button>
+        </DialogHeader>
 
-            {/* 优先级 */}
-            <div className="space-y-2">
-              <label htmlFor="priority" className="text-sm font-medium">
-                优先级
-              </label>
-              <Input
-                id="priority"
-                type="number"
-                min="0"
-                placeholder="数字越小优先级越高"
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-                disabled={isPending}
-              />
-              <p className="text-xs text-muted-foreground">
-                数字越小优先级越高，默认为 0
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={isPending}
+        <div className="space-y-4 py-2">
+          {/* 分组选择 */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">添加到分组</label>
+            <select
+              className="w-full px-3 py-2 bg-muted border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              value={localGroupId}
+              onChange={(e) => setLocalGroupId(e.target.value)}
             >
-              取消
-            </Button>
-            <Button type="submit" disabled={isPending}>
-              {isPending ? '添加中...' : '添加'}
-            </Button>
-          </DialogFooter>
-        </form>
+              {groups.length === 0 ? (
+                <option value="default">默认分组</option>
+              ) : (
+                groups.map(group => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+          
+          {/* 凭证数据 */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              凭证数据 <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              className="w-full h-40 px-3 py-2 bg-muted border border-border rounded-md text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+              placeholder={`一行一个或JSON数组  示例：
+token1
+token2
+token3
+
+或 [{"refreshToken": "xxx"}]`}
+              value={batchInput}
+              onChange={(e) => setBatchInput(e.target.value)}
+            />
+            {/* 实时解析预览 */}
+            {batchInput.trim() && (
+              <div className="text-sm">
+                {(() => {
+                  const input = batchInput.trim()
+                  let count = 0
+                  let isJson = false
+                  let error = ''
+                  
+                  try {
+                    const parsed = JSON.parse(input)
+                    const list = Array.isArray(parsed) ? parsed : [parsed]
+                    count = list.filter((item: any) => {
+                      const token = item.refreshToken || item.refresh_token || (typeof item === 'string' ? item : null)
+                      return token && typeof token === 'string' && token.length > 10
+                    }).length
+                    isJson = true
+                  } catch {
+                    // 按行分割
+                    const lines = input.split('\n').map(l => l.trim()).filter(l => l && l.length > 10)
+                    count = lines.length
+                  }
+                  
+                  if (count === 0) {
+                    error = '未检测到有效凭证'
+                  }
+                  
+                  return (
+                    <div className={`flex items-center gap-2 ${error ? 'text-red-500' : 'text-green-600'}`}>
+                      {error ? (
+                        <span>⚠️ {error}</span>
+                      ) : (
+                        <span>✓ 检测到 <strong>{count}</strong> 个凭证 {isJson ? '(JSON格式)' : '(纯文本格式)'}</span>
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+          >
+            取消
+          </Button>
+          <Button onClick={handleBatchImport}>
+            添加
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

@@ -38,6 +38,71 @@ pub struct CredentialStatusItem {
     pub auth_method: Option<String>,
     /// 是否有 Profile ARN
     pub has_profile_arn: bool,
+    /// 用户邮箱
+    pub email: Option<String>,
+    /// 订阅类型
+    pub subscription_title: Option<String>,
+    /// 当前使用量
+    pub current_usage: Option<f64>,
+    /// 使用限额
+    pub usage_limit: Option<f64>,
+    /// 剩余额度
+    pub remaining: Option<f64>,
+    /// 下次重置时间
+    pub next_reset_at: Option<f64>,
+    /// Refresh Token
+    pub refresh_token: Option<String>,
+    /// Access Token
+    pub access_token: Option<String>,
+    /// Profile ARN
+    pub profile_arn: Option<String>,
+    /// 凭证状态：normal(正常), invalid(无效/封禁), expired(过期)
+    pub status: String,
+    /// 分组 ID
+    pub group_id: String,
+}
+
+// ============ 刷新凭证响应 ============
+
+/// 刷新单个凭证响应
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshCredentialResponse {
+    pub id: u64,
+    pub success: bool,
+    pub email: Option<String>,
+    pub subscription_title: Option<String>,
+    pub remaining: f64,
+    pub message: String,
+}
+
+/// 批量刷新结果项
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshResultItem {
+    pub id: u64,
+    pub success: bool,
+    pub email: Option<String>,
+    pub remaining: Option<f64>,
+    pub error: Option<String>,
+}
+
+/// 批量刷新凭证响应
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshAllResponse {
+    pub success_count: u32,
+    pub fail_count: u32,
+    pub total: u32,
+    pub results: Vec<RefreshResultItem>,
+}
+
+/// 批量刷新凭证请求
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshBatchRequest {
+    /// 要刷新的凭证 ID 列表，为空则刷新所有活跃凭证
+    pub ids: Option<Vec<u64>>,
 }
 
 // ============ 操作请求 ============
@@ -118,6 +183,13 @@ pub struct ImportCredentialItem {
     /// 优先级（可选，默认 0）
     #[serde(default)]
     pub priority: u32,
+    /// 分组 ID（可选，默认 "default"）
+    #[serde(default = "default_group_id")]
+    pub group_id: String,
+}
+
+fn default_group_id() -> String {
+    "default".to_string()
 }
 
 /// 批量导入凭证响应
@@ -142,6 +214,8 @@ pub struct ImportCredentialsResponse {
 pub struct BalanceResponse {
     /// 凭证 ID
     pub id: u64,
+    /// 用户邮箱
+    pub email: Option<String>,
     /// 订阅类型
     pub subscription_title: Option<String>,
     /// 当前使用量
@@ -154,6 +228,18 @@ pub struct BalanceResponse {
     pub usage_percentage: f64,
     /// 下次重置时间（Unix 时间戳）
     pub next_reset_at: Option<f64>,
+    
+    // === 凭证详情 ===
+    /// 认证方式
+    pub auth_method: Option<String>,
+    /// Access Token
+    pub access_token: Option<String>,
+    /// Refresh Token
+    pub refresh_token: Option<String>,
+    /// Profile ARN
+    pub profile_arn: Option<String>,
+    /// Token 过期时间
+    pub expires_at: Option<String>,
 }
 
 // ============ 通用响应 ============
@@ -246,4 +332,113 @@ pub struct UpdateConfigRequest {
     pub api_key: Option<String>,
     /// AWS 区域（可选）
     pub region: Option<String>,
+}
+
+// ============ 批量操作 ============
+
+/// 批量删除请求
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchDeleteRequest {
+    /// 要删除的凭证 ID 列表
+    pub ids: Vec<u64>,
+}
+
+/// 导出凭证请求
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportCredentialsRequest {
+    /// 要导出的凭证 ID 列表（空则导出全部）
+    #[serde(default)]
+    pub ids: Vec<u64>,
+    /// 导出类型：full（完整数据）或 tokens_only（仅 token）
+    pub export_type: Option<String>,
+}
+
+// ============ 模型锁定 ============
+
+/// 设置锁定模型请求
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetLockedModelRequest {
+    /// 要锁定的模型名称（null 或空表示取消锁定）
+    pub model: Option<String>,
+}
+
+// ============ 分组管理 ============
+
+/// 分组信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupInfo {
+    pub id: String,
+    pub name: String,
+    /// 该分组下的凭证数量
+    pub credential_count: u32,
+}
+
+/// 分组列表响应
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupsResponse {
+    pub groups: Vec<GroupInfo>,
+    /// 当前反代使用的分组 ID（null 表示使用所有分组）
+    pub active_group_id: Option<String>,
+}
+
+/// 添加分组请求
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddGroupRequest {
+    pub name: String,
+}
+
+/// 删除分组请求
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteGroupRequest {
+    pub id: String,
+}
+
+/// 设置活跃分组请求
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetActiveGroupRequest {
+    /// 要设置为活跃的分组 ID（null 表示使用所有分组）
+    pub group_id: Option<String>,
+}
+
+/// 修改凭证分组请求
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetCredentialGroupRequest {
+    pub group_id: String,
+}
+
+/// 重命名分组请求
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameGroupRequest {
+    pub name: String,
+}
+
+/// 代理服务状态响应
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyStatusResponse {
+    /// 是否正在运行
+    pub running: bool,
+    /// 监听地址
+    pub host: String,
+    /// 监听端口
+    pub port: u16,
+    /// 使用的分组 ID（null 表示全部）
+    pub active_group_id: Option<String>,
+}
+
+/// 启动/停止代理请求
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetProxyEnabledRequest {
+    pub enabled: bool,
 }

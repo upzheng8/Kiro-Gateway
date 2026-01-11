@@ -1,0 +1,30 @@
+{
+  "host": "127.0.0.1",
+  "port": 8990,
+  "region": "us-east-1",
+  "kiroVersion": "0.8.0",
+  "machineId": null,
+  "apiKey": "sk-kiro-rs-qazWSXedcRFV123456",
+  "systemVersion": "win32#10.0.22631",
+  "nodeVersion": "22.21.1",
+  "countTokensApiUrl": null,
+  "countTokensApiKey": null,
+  "countTokensAuthType": "x-api-key",
+  "proxyUrl": null,
+  "proxyUsername": null,
+  "proxyPassword": null,
+  "adminApiKey": null,
+  "lockedModel": null,
+  "machineIdBackup": null,
+  "groups": [
+    {
+      "id": "default",
+      "name": "默认分组"
+    },
+    {
+      "id": "group_1768160205990",
+      "name": "123"
+    }
+  ],
+  "activeGroupId": null
+}

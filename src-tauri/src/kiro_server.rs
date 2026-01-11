@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::{
     admin, anthropic, 
     http_client::ProxyConfig, 
@@ -77,19 +78,28 @@ pub async fn run_server(
         proxy: proxy_config,
     });
 
+    // 创建共享的代理启用标志
+    let proxy_enabled = Arc::new(AtomicBool::new(true));
+
     // 构建 Anthropic API 路由 (使用第一个凭证的 profile_arn 占位，实际由 Provider 动态处理)
-    // 注意：这里逻辑稍微简化，Router 依赖 provider，provider 内部处理轮询
-    let first_credentials = token_manager.credentials(); // 获取当前活跃的凭证
+    let first_credentials = token_manager.credentials();
     
-    let anthropic_app = anthropic::create_router_with_provider(
+    let anthropic_app = anthropic::create_router_with_provider_and_control(
         &api_key,
         Some(kiro_provider),
         first_credentials.profile_arn.clone(),
+        proxy_enabled.clone(),
     );
 
     // 始终启用 Admin API，不再检查 admin_api_key
     let admin_service = admin::AdminService::new(token_manager.clone());
-    let admin_state = admin::AdminState::new("", admin_service); // 空密钥，因为已移除认证
+    let config_arc = Arc::new(parking_lot::Mutex::new(config.clone()));
+    let mut admin_state = admin::AdminState::new("", admin_service, config_arc, token_manager.clone());
+    // 共享代理启用标志
+    admin_state.proxy_enabled = proxy_enabled.clone();
+    // 设置代理控制器为运行状态
+    admin_state.proxy_controller.set_running(true);
+    
     let admin_app = admin::create_admin_router(admin_state);
 
     tracing::info!("Admin API 已启用");
@@ -108,11 +118,16 @@ pub async fn run_server(
         }))
     }
     
-    let app = anthropic_app
+    // 创建基础路由（健康检查和 Admin API）
+    let base_routes = axum::Router::new()
         .route("/", axum::routing::get(health_check))
         .route("/health", axum::routing::get(health_check))
         .route("/ping", axum::routing::get(health_check))
-        .nest("/api/admin", admin_app)
+        .nest("/api/admin", admin_app);
+    
+    // 合并所有路由
+    let app = base_routes
+        .merge(anthropic_app)
         .layer(cors);
 
     let addr = format!("{}:{}", config.host, config.port);
@@ -127,6 +142,125 @@ pub async fn run_server(
             tracing::info!("收到停止信号，正在关闭服务...");
         })
         .await?;
+
+    Ok(())
+}
+
+/// 独立模式：Admin API + 可控的反代服务
+/// 用于 GUI 模式下运行
+pub async fn run_admin_server(
+    config_path: String,
+    credentials_path: String,
+) -> anyhow::Result<()> {
+    // 加载配置
+    let config = Config::load_or_create(&config_path).map_err(|e| {
+        tracing::error!("加载配置失败: {}", e);
+        anyhow::anyhow!("Load Config Error: {}", e)
+    })?;
+
+    // 加载凭证
+    let credentials_config = CredentialsConfig::load_or_create(&credentials_path).map_err(|e| {
+        tracing::error!("加载凭证失败: {}", e);
+        anyhow::anyhow!("Load Credentials Error: {}", e)
+    })?;
+
+    let is_multiple_format = credentials_config.is_multiple();
+    let credentials_list = credentials_config.into_sorted_credentials();
+    tracing::info!("已加载 {} 个凭证配置", credentials_list.len());
+
+    // 获取 API Key（反代需要）
+    let api_key = config.api_key.clone().unwrap_or_else(|| {
+        "sk-kiro-gateway-default".to_string()
+    });
+
+    // 构建代理配置
+    let proxy_config = config.proxy_url.as_ref().map(|url| {
+        let mut proxy = ProxyConfig::new(url);
+        if let (Some(username), Some(password)) = (&config.proxy_username, &config.proxy_password) {
+            proxy = proxy.with_auth(username, password);
+        }
+        proxy
+    });
+
+    // 创建 MultiTokenManager
+    let token_manager = MultiTokenManager::new(
+        config.clone(),
+        credentials_list,
+        proxy_config.clone(),
+        Some(credentials_path.into()),
+        is_multiple_format,
+    )?;
+    
+    let token_manager = Arc::new(token_manager);
+    
+    // 创建 KiroProvider（用于反代）
+    let kiro_provider = KiroProvider::with_proxy(token_manager.clone(), proxy_config.clone());
+
+    // 初始化 count_tokens 配置
+    token::init_config(token::CountTokensConfig {
+        api_url: config.count_tokens_api_url.clone(),
+        api_key: config.count_tokens_api_key.clone(),
+        auth_type: config.count_tokens_auth_type.clone(),
+        proxy: proxy_config,
+    });
+
+    // 创建共享的代理启用标志（默认启用）
+    let proxy_enabled = Arc::new(AtomicBool::new(true));
+
+    // 构建 Anthropic API 路由（带代理控制）
+    let first_credentials = token_manager.credentials();
+    let anthropic_app = anthropic::create_router_with_provider_and_control(
+        &api_key,
+        Some(kiro_provider),
+        first_credentials.profile_arn.clone(),
+        proxy_enabled.clone(),
+    );
+
+    // 创建 Admin API
+    let admin_service = admin::AdminService::new(token_manager.clone());
+    let config_arc = Arc::new(parking_lot::Mutex::new(config.clone()));
+    let mut admin_state = admin::AdminState::new("", admin_service, config_arc, token_manager.clone());
+    // 共享代理启用标志
+    admin_state.proxy_enabled = proxy_enabled.clone();
+    // 设置代理控制器为运行状态
+    admin_state.proxy_controller.set_running(true);
+    
+    let admin_app = admin::create_admin_router(admin_state);
+
+    tracing::info!("Admin API 已启用（独立模式）");
+    
+    // 配置 CORS
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+    
+    // 健康检查
+    async fn health_check() -> axum::Json<serde_json::Value> {
+        axum::Json(serde_json::json!({
+            "status": "ok",
+            "service": "kiro-gateway"
+        }))
+    }
+    
+    // 创建基础路由（健康检查和 Admin API）
+    let base_routes = axum::Router::new()
+        .route("/", axum::routing::get(health_check))
+        .route("/health", axum::routing::get(health_check))
+        .route("/ping", axum::routing::get(health_check))
+        .nest("/api/admin", admin_app);
+    
+    // 合并所有路由（包括反代）
+    let app = base_routes
+        .merge(anthropic_app)
+        .layer(cors);
+
+    let addr = format!("{}:{}", config.host, config.port);
+    tracing::info!("服务启动监听: {}", addr);
+    
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    
+    axum::serve(listener, app).await?;
 
     Ok(())
 }

@@ -18,6 +18,7 @@
 
 mod error;
 mod handlers;
+pub mod local_account;
 mod middleware;
 mod router;
 mod service;

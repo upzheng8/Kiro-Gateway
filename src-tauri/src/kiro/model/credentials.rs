@@ -47,6 +47,60 @@ pub struct KiroCredentials {
     #[serde(default)]
     #[serde(skip_serializing_if = "is_zero")]
     pub priority: u32,
+
+    /// 用户邮箱（从 API 获取后缓存）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+
+    /// 订阅类型（从 API 获取后缓存）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscription_title: Option<String>,
+
+    /// 当前使用量（从 API 获取后缓存）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_usage: Option<f64>,
+
+    /// 使用限额（从 API 获取后缓存）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage_limit: Option<f64>,
+
+    /// 剩余额度（从 API 获取后缓存）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remaining: Option<f64>,
+
+    /// 下次重置时间 Unix 时间戳（从 API 获取后缓存）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_reset_at: Option<f64>,
+
+    /// 凭证状态：normal(正常), invalid(无效/封禁), expired(过期)
+    #[serde(default = "default_status")]
+    #[serde(skip_serializing_if = "is_normal_status")]
+    pub status: String,
+
+    /// 分组 ID（默认为 "default"）
+    #[serde(default = "default_group_id")]
+    #[serde(skip_serializing_if = "is_default_group")]
+    pub group_id: String,
+}
+
+/// 默认分组 ID
+fn default_group_id() -> String {
+    "default".to_string()
+}
+
+/// 判断是否为默认分组（用于跳过序列化）
+fn is_default_group(value: &String) -> bool {
+    value == "default"
+}
+
+/// 默认状态
+fn default_status() -> String {
+    "normal".to_string()
+}
+
+/// 判断是否为正常状态（用于跳过序列化）
+fn is_normal_status(value: &String) -> bool {
+    value == "normal"
 }
 
 /// 判断是否为零（用于跳过序列化）
@@ -213,6 +267,14 @@ mod tests {
             client_id: None,
             client_secret: None,
             priority: 0,
+            email: None,
+            subscription_title: None,
+            current_usage: None,
+            usage_limit: None,
+            remaining: None,
+            next_reset_at: None,
+            status: "normal".to_string(),
+            group_id: "default".to_string(),
         };
 
         let json = creds.to_pretty_json().unwrap();

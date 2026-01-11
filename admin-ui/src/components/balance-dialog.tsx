@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -5,97 +7,154 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
-import { useCredentialBalance } from '@/hooks/use-credentials'
-import { parseError } from '@/lib/utils'
+import { Copy, Check } from 'lucide-react'
+import { CredentialStatusItem } from '@/types/api'
 
 interface BalanceDialogProps {
-  credentialId: number | null
+  credential: CredentialStatusItem | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-export function BalanceDialog({ credentialId, open, onOpenChange }: BalanceDialogProps) {
-  const { data: balance, isLoading, error } = useCredentialBalance(credentialId)
+export function BalanceDialog({ credential, open, onOpenChange }: BalanceDialogProps) {
+  const [copied, setCopied] = useState<string | null>(null)
 
   const formatDate = (timestamp: number | null) => {
     if (!timestamp) return '未知'
     return new Date(timestamp * 1000).toLocaleString('zh-CN')
   }
 
-  const formatNumber = (num: number) => {
+  const formatNumber = (num: number | null) => {
+    if (num === null) return '-'
     return num.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   }
+
+  const handleCopy = (text: string, field: string) => {
+    navigator.clipboard.writeText(text)
+    setCopied(field)
+    toast.success('已复制')
+    setTimeout(() => setCopied(null), 1500)
+  }
+
+  const maskToken = (token: string | null) => {
+    if (!token || token.length < 20) return token || '-'
+    return token.slice(0, 8) + '...' + token.slice(-8)
+  }
+
+  const usagePercentage = credential?.usageLimit 
+    ? Math.min(100, ((credential.currentUsage || 0) / credential.usageLimit) * 100)
+    : 0
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>
-            凭证 #{credentialId} 余额信息
+          <DialogTitle className="flex items-center gap-2">
+            凭证 #{credential?.id}
+            {credential?.subscriptionTitle && (
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                credential.subscriptionTitle.includes('PRO+') 
+                  ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white' 
+                  : credential.subscriptionTitle.includes('PRO')
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-muted text-muted-foreground'
+              }`}>
+                {credential.subscriptionTitle}
+              </span>
+            )}
           </DialogTitle>
         </DialogHeader>
 
-        {isLoading && (
-          <div className="flex items-center justify-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          </div>
-        )}
-
-        {error && (() => {
-          const parsed = parseError(error)
-          return (
-            <div className="py-6 space-y-3">
-              <div className="flex items-center justify-center gap-2 text-red-500">
-                <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                </svg>
-                <span className="font-medium">{parsed.title}</span>
+        {credential ? (
+          <div className="space-y-4">
+            {/* 用户邮箱 */}
+            {credential.email && (
+              <div className="text-center text-muted-foreground text-sm">
+                {credential.email}
               </div>
-              {parsed.detail && (
-                <div className="text-sm text-muted-foreground text-center px-4">
-                  {parsed.detail}
+            )}
+
+            {/* 配额信息 */}
+            {credential.usageLimit !== null && (
+              <div className="space-y-2">
+                <div className="flex items-baseline justify-between">
+                  <div>
+                    <span className="text-lg font-bold">${formatNumber(credential.currentUsage)}</span>
+                    <span className="text-muted-foreground text-sm ml-1">/ ${formatNumber(credential.usageLimit)}</span>
+                  </div>
+                  <span className={`text-xs font-medium ${
+                    usagePercentage > 80 ? 'text-red-500' : 
+                    usagePercentage > 50 ? 'text-yellow-600' : 'text-green-600'
+                  }`}>
+                    {usagePercentage.toFixed(1)}%
+                  </span>
+                </div>
+
+                <Progress value={usagePercentage} className="h-1.5" />
+
+                <div className="flex justify-between text-sm pt-1">
+                  <span>
+                    <span className="text-muted-foreground">剩余: </span>
+                    <span className="font-medium text-green-600">${formatNumber(credential.remaining)}</span>
+                  </span>
+                  <span>
+                    <span className="text-muted-foreground">重置: </span>
+                    <span className="font-medium">{formatDate(credential.nextResetAt)}</span>
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Token 信息 */}
+            <div className="pt-3 border-t space-y-2 text-xs">
+              {/* Refresh Token */}
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground w-24">Refresh Token</span>
+                <span className="font-mono flex-1 truncate mx-2">{maskToken(credential.refreshToken)}</span>
+                {credential.refreshToken && (
+                  <button 
+                    onClick={() => handleCopy(credential.refreshToken!, 'refresh')}
+                    className="text-muted-foreground hover:text-primary p-1"
+                  >
+                    {copied === 'refresh' ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                  </button>
+                )}
+              </div>
+
+              {/* Access Token */}
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground w-24">Access Token</span>
+                <span className="font-mono flex-1 truncate mx-2">{maskToken(credential.accessToken)}</span>
+                {credential.accessToken && (
+                  <button 
+                    onClick={() => handleCopy(credential.accessToken!, 'access')}
+                    className="text-muted-foreground hover:text-primary p-1"
+                  >
+                    {copied === 'access' ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                  </button>
+                )}
+              </div>
+
+              {/* Profile ARN */}
+              {credential.profileArn && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground w-24">Profile ARN</span>
+                  <span className="font-mono flex-1 truncate mx-2" title={credential.profileArn}>
+                    {maskToken(credential.profileArn)}
+                  </span>
+                  <button 
+                    onClick={() => handleCopy(credential.profileArn!, 'arn')}
+                    className="text-muted-foreground hover:text-primary p-1"
+                  >
+                    {copied === 'arn' ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                  </button>
                 </div>
               )}
             </div>
-          )
-        })()}
-
-        {balance && (
-          <div className="space-y-4">
-            {/* 订阅类型 */}
-            <div className="text-center">
-              <span className="text-lg font-semibold">
-                {balance.subscriptionTitle || '未知订阅类型'}
-              </span>
-            </div>
-
-            {/* 使用进度 */}
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>已使用: ${formatNumber(balance.currentUsage)}</span>
-                <span>限额: ${formatNumber(balance.usageLimit)}</span>
-              </div>
-              <Progress value={balance.usagePercentage} />
-              <div className="text-center text-sm text-muted-foreground">
-                {balance.usagePercentage.toFixed(1)}% 已使用
-              </div>
-            </div>
-
-            {/* 详细信息 */}
-            <div className="grid grid-cols-2 gap-4 pt-4 border-t text-sm">
-              <div>
-                <span className="text-muted-foreground">剩余额度：</span>
-                <span className="font-medium text-green-600">
-                  ${formatNumber(balance.remaining)}
-                </span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">下次重置：</span>
-                <span className="font-medium">
-                  {formatDate(balance.nextResetAt)}
-                </span>
-              </div>
-            </div>
+          </div>
+        ) : (
+          <div className="py-6 text-center text-muted-foreground">
+            请选择凭证
           </div>
         )}
       </DialogContent>

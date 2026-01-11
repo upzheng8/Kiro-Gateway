@@ -43,6 +43,8 @@ crossbeam-channel = "0.5" # For thread communication
 tauri = { version = "2.0.0-rc", features = [] }
 tauri-build = { version = "2.0.0-rc", features = [] }
 tauri-plugin-shell = "2.0.0-rc"
+tauri-plugin-dialog = "2.0.0-rc"
+tauri-plugin-fs = "2.0.0-rc"
 
 
 [build-dependencies]

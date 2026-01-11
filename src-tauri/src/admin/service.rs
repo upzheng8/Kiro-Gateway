@@ -8,7 +8,7 @@ use crate::kiro::token_manager::MultiTokenManager;
 use super::error::AdminServiceError;
 use super::types::{
     AddCredentialRequest, AddCredentialResponse, BalanceResponse, CredentialStatusItem,
-    CredentialsStatusResponse,
+    CredentialsStatusResponse, RefreshCredentialResponse, RefreshAllResponse, RefreshResultItem,
 };
 
 /// Admin 服务
@@ -39,6 +39,17 @@ impl AdminService {
                 expires_at: entry.expires_at,
                 auth_method: entry.auth_method,
                 has_profile_arn: entry.has_profile_arn,
+                email: entry.email,
+                subscription_title: entry.subscription_title,
+                current_usage: entry.current_usage,
+                usage_limit: entry.usage_limit,
+                remaining: entry.remaining,
+                next_reset_at: entry.next_reset_at,
+                refresh_token: entry.refresh_token,
+                access_token: entry.access_token,
+                profile_arn: entry.profile_arn,
+                status: entry.status,
+                group_id: entry.group_id,
             })
             .collect();
 
@@ -51,6 +62,14 @@ impl AdminService {
             current_id: snapshot.current_id,
             credentials,
         }
+    }
+
+    /// 获取导出用的凭证数据
+    /// 
+    /// # Arguments
+    /// * `ids` - 要导出的凭证 ID 列表
+    pub fn get_credentials_for_export(&self, ids: &[u64]) -> Vec<KiroCredentials> {
+        self.token_manager.get_credentials_for_export(ids)
     }
 
     /// 设置凭证禁用状态
@@ -84,6 +103,101 @@ impl AdminService {
             .map_err(|e| self.classify_error(e, id))
     }
 
+    /// 刷新单个凭证（刷新 Token + 更新余额 + 重置失败计数）
+    pub async fn refresh_credential(&self, id: u64) -> Result<RefreshCredentialResponse, AdminServiceError> {
+        // 首先重置失败计数并启用凭证
+        if let Err(e) = self.token_manager.reset_and_enable(id) {
+            tracing::warn!("重置凭证 #{} 失败计数时出错: {}", id, e);
+        }
+        
+        // 然后刷新 Token
+        if let Err(e) = self.token_manager.refresh_token_for(id).await {
+            // 刷新失败，更新状态为 invalid
+            let _ = self.token_manager.update_status(id, "invalid");
+            return Err(self.classify_error(e, id));
+        }
+        
+        // 最后获取余额（会自动更新缓存）
+        let usage = self
+            .token_manager
+            .get_usage_limits_for(id)
+            .await
+            .map_err(|e| self.classify_balance_error(e, id))?;
+
+        let current_usage = usage.current_usage();
+        let usage_limit = usage.usage_limit();
+        let remaining = (usage_limit - current_usage).max(0.0);
+
+        Ok(RefreshCredentialResponse {
+            id,
+            success: true,
+            email: usage.email().map(|s| s.to_string()),
+            subscription_title: usage.subscription_title().map(|s| s.to_string()),
+            remaining,
+            message: format!("凭证 #{} 刷新成功", id),
+        })
+    }
+
+    /// 批量刷新凭证（并发执行）
+    /// 
+    /// # Arguments
+    /// * `ids` - 要刷新的凭证 ID 列表，为空则刷新所有活跃凭证
+    pub async fn refresh_credentials(&self, ids: Vec<u64>) -> Result<RefreshAllResponse, AdminServiceError> {
+        use futures::stream::{self, StreamExt};
+        
+        let snapshot = self.token_manager.snapshot();
+        
+        // 确定要刷新的凭证
+        let target_ids: Vec<u64> = if ids.is_empty() {
+            // 刷新所有活跃凭证
+            snapshot.entries.iter()
+                .filter(|e| !e.disabled)
+                .map(|e| e.id)
+                .collect()
+        } else {
+            ids
+        };
+
+        // 并发执行刷新（最多 10 个并发）
+        let results: Vec<RefreshResultItem> = stream::iter(target_ids)
+            .map(|id| async move {
+                match self.refresh_credential(id).await {
+                    Ok(res) => RefreshResultItem {
+                        id,
+                        success: true,
+                        email: res.email,
+                        remaining: Some(res.remaining),
+                        error: None,
+                    },
+                    Err(e) => RefreshResultItem {
+                        id,
+                        success: false,
+                        email: None,
+                        remaining: None,
+                        error: Some(e.to_string()),
+                    },
+                }
+            })
+            .buffer_unordered(10) // 最多 10 个并发
+            .collect()
+            .await;
+
+        let success_count = results.iter().filter(|r| r.success).count() as u32;
+        let fail_count = results.iter().filter(|r| !r.success).count() as u32;
+
+        Ok(RefreshAllResponse {
+            success_count,
+            fail_count,
+            total: success_count + fail_count,
+            results,
+        })
+    }
+
+    /// 批量刷新所有凭证（兼容旧 API）
+    pub async fn refresh_all_credentials(&self) -> Result<RefreshAllResponse, AdminServiceError> {
+        self.refresh_credentials(vec![]).await
+    }
+
     /// 获取凭证余额
     pub async fn get_balance(&self, id: u64) -> Result<BalanceResponse, AdminServiceError> {
         let usage = self
@@ -101,14 +215,25 @@ impl AdminService {
             0.0
         };
 
+        // 获取凭证详情
+        let creds = self.token_manager.get_credentials_for_export(&[id]);
+        let cred = creds.first();
+
         Ok(BalanceResponse {
             id,
+            email: usage.email().map(|s| s.to_string()),
             subscription_title: usage.subscription_title().map(|s| s.to_string()),
             current_usage,
             usage_limit,
             remaining,
             usage_percentage,
             next_reset_at: usage.next_date_reset,
+            // 凭证详情
+            auth_method: cred.and_then(|c| c.auth_method.clone()),
+            access_token: cred.and_then(|c| c.access_token.clone()),
+            refresh_token: cred.and_then(|c| c.refresh_token.clone()),
+            profile_arn: cred.and_then(|c| c.profile_arn.clone()),
+            expires_at: cred.and_then(|c| c.expires_at.clone()),
         })
     }
 
@@ -150,6 +275,14 @@ impl AdminService {
             client_id: req.client_id,
             client_secret: req.client_secret,
             priority,
+            email: None,
+            subscription_title: None,
+            current_usage: None,
+            usage_limit: None,
+            remaining: None,
+            next_reset_at: None,
+            status: "normal".to_string(),
+            group_id: "default".to_string(),
         };
 
         // 调用 token_manager 添加凭证
@@ -213,6 +346,14 @@ impl AdminService {
                 client_id: item.client_id,
                 client_secret: item.client_secret,
                 priority: priority,
+                email: None,
+                subscription_title: None,
+                current_usage: None,
+                usage_limit: None,
+                remaining: None,
+                next_reset_at: None,
+                status: "normal".to_string(),
+                group_id: item.group_id.clone(),
             };
 
             // 尝试添加凭证
