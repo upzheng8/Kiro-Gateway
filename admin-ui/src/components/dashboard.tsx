@@ -532,31 +532,6 @@ export function Dashboard(_props: DashboardProps) {
             {/* 分组列表 */}
             {groupsExpanded && (
               <div className="mt-1 ml-3 space-y-0.5">
-                {/* 全部 */}
-                <button
-                  onClick={() => {
-                    setSelectedGroupId('all')
-                    setActiveTab('credentials')
-                    setSelectedIds(new Set())
-                    setCurrentPage(1)
-                  }}
-                  className={`w-full flex items-center gap-2 pl-4 pr-3 py-1.5 rounded text-xs transition-colors ${
-                    selectedGroupId === 'all'
-                      ? 'bg-muted text-foreground font-medium'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                  }`}
-                >
-                  <span className="relative">
-                    {proxyRunning && activeGroupId === null && (
-                      <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[8px] text-green-500" title="反代使用中">●</span>
-                    )}
-                    <FolderOpen className="h-3 w-3" />
-                  </span>
-                  全部
-                  <span className="ml-auto text-[10px] text-muted-foreground">
-                    {data?.total || 0}
-                  </span>
-                </button>
                 
                 {/* 各个分组 */}
                 {groups.map(group => (
@@ -1129,7 +1104,7 @@ export function Dashboard(_props: DashboardProps) {
                             const { setActiveGroup, getGroups } = await import('@/api/credentials')
                             await setActiveGroup(apiValue)
                             setActiveGroupId(apiValue)
-                            toast.success(apiValue ? `已切换到分组 "${groups.find(g => g.id === apiValue)?.name}"` : '已切换到所有分组')
+                            toast.success(apiValue ? `已切换到分组 "${groups.find(g => g.id === apiValue)?.name}"` : '已切换到全部')
                             const response = await getGroups()
                             setGroups(response.groups)
                             // 切换分组后刷新凭证数据以显示最新的当前凭证
@@ -1139,9 +1114,9 @@ export function Dashboard(_props: DashboardProps) {
                           }
                         }}
                       >
-                        <option value="all">全部</option>
+                        <option value="all" disabled={(data?.total || 0) === 0}>全部 ({data?.total || 0})</option>
                         {groups.map(group => (
-                          <option key={group.id} value={group.id}>
+                          <option key={group.id} value={group.id} disabled={group.credentialCount === 0}>
                             {group.name} ({group.credentialCount})
                           </option>
                         ))}
@@ -1149,33 +1124,43 @@ export function Dashboard(_props: DashboardProps) {
                       <span className="text-xs text-muted-foreground">
                         {proxyRunning ? '运行中' : '已停止'}
                       </span>
-                      <div 
-                        className={`w-10 h-5 rounded-full relative transition-colors ${
-                          proxyToggling ? 'opacity-50 cursor-wait' : 'cursor-pointer'
-                        } ${proxyRunning ? 'bg-primary' : 'bg-muted'}`}
-                        onClick={async () => {
-                          if (proxyToggling) return  // 防止重复点击
-                          setProxyToggling(true)
-                          try {
-                            const { setProxyEnabled: setProxyEnabledApi } = await import('@/api/credentials')
-                            await setProxyEnabledApi(!proxyRunning)
-                            setProxyRunning(!proxyRunning)
-                            // 开启反代后刷新凭证数据以显示最新的当前凭证
-                            if (!proxyRunning) {
-                              refetch()
-                            }
-                            toast.success(proxyRunning ? '代理服务已停止' : '代理服务已启动')
-                          } catch (e: any) {
-                            toast.error(e.response?.data?.error?.message || '操作失败')
-                          } finally {
-                            setProxyToggling(false)
-                          }
-                        }}
-                      >
-                        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
-                          proxyToggling ? 'animate-pulse' : ''
-                        } ${proxyRunning ? 'left-5' : 'left-0.5'}`} />
-                      </div>
+                      {(() => {
+                        // 计算当前选中分组的凭证数
+                        const selectedGroupCredCount = activeGroupId === null 
+                          ? (data?.total || 0)  // 全部
+                          : (groups.find(g => g.id === activeGroupId)?.credentialCount || 0)
+                        const isDisabled = selectedGroupCredCount === 0
+                        
+                        return (
+                          <div 
+                            className={`w-10 h-5 rounded-full relative transition-colors ${
+                              proxyToggling || isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                            } ${proxyRunning ? 'bg-primary' : 'bg-muted'}`}
+                            title={isDisabled ? '当前分组没有凭证' : ''}
+                            onClick={async () => {
+                              if (proxyToggling || isDisabled) return
+                              setProxyToggling(true)
+                              try {
+                                const { setProxyEnabled: setProxyEnabledApi } = await import('@/api/credentials')
+                                await setProxyEnabledApi(!proxyRunning)
+                                setProxyRunning(!proxyRunning)
+                                if (!proxyRunning) {
+                                  refetch()
+                                }
+                                toast.success(proxyRunning ? '代理服务已停止' : '代理服务已启动')
+                              } catch (e: any) {
+                                toast.error(e.response?.data?.error?.message || '操作失败')
+                              } finally {
+                                setProxyToggling(false)
+                              }
+                            }}
+                          >
+                            <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
+                              proxyToggling ? 'animate-pulse' : ''
+                            } ${proxyRunning ? 'left-5' : 'left-0.5'}`} />
+                          </div>
+                        )
+                      })()}
                     </div>
                   </div>
                 </CardHeader>

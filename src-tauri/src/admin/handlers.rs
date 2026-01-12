@@ -932,7 +932,7 @@ pub async fn set_active_group(
     
     let msg = match payload.group_id {
         Some(gid) => format!("已切换到分组 '{}'", gid),
-        None => "已切换到所有分组".to_string(),
+        None => "已切换到全部".to_string(),
     };
     Json(SuccessResponse::new(msg)).into_response()
 }
