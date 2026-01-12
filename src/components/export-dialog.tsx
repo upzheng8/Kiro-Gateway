@@ -51,37 +51,18 @@ export function ExportDialog({ open, onOpenChange, selectedIds }: ExportDialogPr
         defaultFilename = `Kiro Gateway${credentials.length} ${timestamp}.txt`
       }
       
-      // 使用 Tauri 保存对话框
-      try {
-        const { save } = await import('@tauri-apps/plugin-dialog')
-        const { writeTextFile } = await import('@tauri-apps/plugin-fs')
-        
-        const filePath = await save({
-          defaultPath: defaultFilename,
-          filters: format === 'json' 
-            ? [{ name: 'JSON', extensions: ['json'] }]
-            : [{ name: 'Text', extensions: ['txt'] }]
-        })
-        
-        if (filePath) {
-          await writeTextFile(filePath, content)
-          toast.success(`已导出 ${result.count} 个凭证到 ${filePath}`)
-          onOpenChange(false)
-        }
-      } catch {
-        // 回退到浏览器下载
-        const mimeType = format === 'json' ? 'application/json' : 'text/plain'
-        const blob = new Blob([content], { type: mimeType })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = defaultFilename
-        a.click()
-        URL.revokeObjectURL(url)
-        
-        toast.success(`已导出 ${result.count} 个凭证`)
-        onOpenChange(false)
-      }
+      // 使用浏览器下载
+      const mimeType = format === 'json' ? 'application/json' : 'text/plain'
+      const blob = new Blob([content], { type: mimeType })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = defaultFilename
+      a.click()
+      URL.revokeObjectURL(url)
+      
+      toast.success(`已导出 ${result.count} 个凭证`)
+      onOpenChange(false)
     } catch (e: any) {
       toast.error(`导出失败: ${e.response?.data?.error?.message || e.message}`)
     } finally {
