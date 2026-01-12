@@ -66,7 +66,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "src-tauri -> target"
-          shared-key: "tauri-v2-stable-${{ matrix.target }}"
+          shared-key: "tauri-v2-clean-${{ matrix.target }}"
           cache-on-failure: true
 
       - name: Build Tauri app
@@ -74,8 +74,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: src-tauri
-          tauriScript: cargo tauri
           args: ${{ matrix.args }}
 
       - name: Upload to Release (Windows)
