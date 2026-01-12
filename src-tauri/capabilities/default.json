@@ -4,8 +4,9 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "shell:default",
-    "dialog:default",
-    "fs:default"
+    "shell:allow-open",
+    "dialog:allow-save",
+    "fs:default",
+    "fs:allow-write-text-file"
   ]
 }

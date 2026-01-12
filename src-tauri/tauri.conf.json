@@ -24,6 +24,12 @@
   "plugins": {
     "shell": {
       "open": true
+    },
+    "fs": {
+      "scope": {
+        "allow": ["**"],
+        "require-literal-leading-dot": false
+      }
     }
   },
   "bundle": {
