@@ -70,6 +70,7 @@ jobs:
 
       # 安装 Tauri CLI 和 核心插件依赖
       - name: Install dependencies
+        shell: bash
         run: |
           npm install
           npm install @tauri-apps/cli@latest --save-dev
