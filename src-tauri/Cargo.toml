@@ -51,3 +51,8 @@ tauri-plugin-fs = "2"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[features]
+# this feature is used for production builds or when devPath points to the filesystem
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
