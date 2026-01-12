@@ -631,10 +631,10 @@ export function Dashboard(_props: DashboardProps) {
                   href="https://pay.ldxp.cn/shop/V6VSA2G8"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="ml-2 inline-flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-medium rounded-full transition-all duration-200 hover:scale-105 shadow-sm hover:shadow-md animate-pulse"
+                  className="ml-2 inline-flex items-center gap-1.5 px-2.5 py-1 hover:bg-muted rounded-md transition-colors text-muted-foreground hover:text-foreground"
                   title="购买账号"
                 >
-                  <ShoppingCart className="h-3.5 w-3.5" />
+                  <ShoppingCart className="h-4 w-4 animate-shake-periodic" />
                   商城
                 </a>
               </>
