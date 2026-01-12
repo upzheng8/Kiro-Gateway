@@ -66,7 +66,7 @@ jobs:
           cache-on-failure: true
 
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2.0.0" --locked
+        run: cargo install tauri-cli --version "^2.9" --locked
 
       - name: Build Tauri app
         working-directory: src-tauri
