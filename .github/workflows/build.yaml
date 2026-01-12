@@ -62,12 +62,13 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      - name: Setup Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "src-tauri -> target"
-          shared-key: "tauri-v2-clean-${{ matrix.target }}"
-          cache-on-failure: true
+      # Temporarily disabled to ensure clean build
+      # - name: Setup Rust cache
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     workspaces: "src-tauri -> target"
+      #     shared-key: "tauri-v2-clean-${{ matrix.target }}"
+      #     cache-on-failure: true
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
