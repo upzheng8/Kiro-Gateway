@@ -61,10 +61,10 @@ jobs:
         if: ${{ !matrix.target }}
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: "./src-tauri -> target"
+      # - name: Rust cache
+      #   uses: swatinem/rust-cache@v2
+      #   with:
+      #     workspaces: "./src-tauri -> target"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
