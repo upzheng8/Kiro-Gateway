@@ -3,12 +3,6 @@
   "description": "Capability for the main window",
   "windows": ["main"],
   "permissions": [
-    "core:event:default",
-    "core:window:default",
-    "core:app:default",
-    "core:resources:default",
-    "core:menu:default",
-    "core:tray:default",
     "fs:default",
     "dialog:default",
     "shell:allow-open"
