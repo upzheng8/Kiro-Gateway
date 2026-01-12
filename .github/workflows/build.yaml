@@ -70,11 +70,15 @@ jobs:
       #     shared-key: "tauri-v2-clean-${{ matrix.target }}"
       #     cache-on-failure: true
 
+      - name: Install tauri-cli
+        run: npm install
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          tauriScript: npm run tauri
           args: ${{ matrix.args }}
 
       - name: Upload to Release (Windows)
