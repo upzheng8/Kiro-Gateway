@@ -72,11 +72,11 @@
 git clone https://github.com/Zheng-up/Kiro-Gateway.git
 cd Kiro-Gateway
 
-# 安装前端依赖
-cd admin-ui && pnpm install && pnpm build && cd ..
+# 安装依赖
+npm install
 
 # 编译 Tauri 应用
-cd src-tauri && cargo tauri build
+npm run tauri build
 ```
 
 ## 配置文件
@@ -216,8 +216,12 @@ Authorization: Bearer sk-your-api-key
 
 ```
 Kiro-Gateway/
-├── config.json            # 配置文件（EXE 同级目录）
-├── credentials.json       # 凭证文件（EXE 同级目录）
+├── src/                   # React 前端源码
+│   └── components/        # 组件
+├── public/                # 静态资源
+├── index.html             # 前端入口
+├── vite.config.ts         # Vite 配置
+├── package.json           # 依赖配置
 ├── src-tauri/             # Rust 后端 + Tauri
 │   ├── src/
 │   │   ├── main.rs        # Tauri 入口
@@ -226,12 +230,8 @@ Kiro-Gateway/
 │   │   ├── anthropic/     # Anthropic API 兼容层
 │   │   └── kiro/          # Kiro API 客户端
 │   └── tauri.conf.json    # Tauri 配置
-└── admin-ui/              # React 前端 (Vite + TypeScript)
-    └── src/
-        └── components/
-            ├── dashboard.tsx
-            ├── add-credential-dialog.tsx
-            └── balance-dialog.tsx
+├── config.json            # 配置文件（运行时创建）
+└── credentials.json       # 凭证文件（运行时创建）
 ```
 
 ## 技术栈
@@ -254,32 +254,25 @@ Kiro-Gateway/
 ### 环境要求
 
 - Node.js 20+
-- pnpm 9+
+- npm 10+ (或 pnpm)
 - Rust (stable)
-- Tauri CLI 2.x
+- Tauri CLI 2.x (已包含在 devDependencies)
 
 ### 开发模式
 
 ```bash
-# 1. 安装前端依赖
-cd admin-ui
-pnpm install
+# 安装依赖
+npm install
 
-# 2. 启动开发服务器（带热更新）
-cd ../src-tauri
-cargo tauri dev
+# 启动开发服务器（带热更新）
+npm run tauri dev
 ```
 
 ### 本地构建
 
 ```bash
-# 1. 构建前端
-cd admin-ui
-pnpm build
-
-# 2. 构建 Tauri 应用
-cd ../src-tauri
-cargo tauri build
+# 构建 Tauri 应用
+npm run tauri build
 ```
 
 构建产物位于 `src-tauri/target/release/bundle/` 目录。

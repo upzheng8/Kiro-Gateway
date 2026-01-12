@@ -52,15 +52,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-
-      # 前端构建
-      - name: Install admin-ui dependencies
-        working-directory: admin-ui
-        run: npm ci
-
-      - name: Build admin-ui
-        working-directory: admin-ui
-        run: npm run build
+          cache: "npm"
 
       # 智能安装 Rust (自动添加对应的 target)
       - name: Setup Rust
@@ -68,16 +60,23 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      # 安装 Tauri CLI 和 核心插件依赖
-      - name: Install dependencies
-        shell: bash
-        run: |
-          npm install
-          npm install @tauri-apps/cli@latest --save-dev
+      # Rust 缓存加速
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
 
-      # 这一步是最关键的，构建应用
+      # 安装前端依赖
+      - name: Install dependencies
+        run: npm ci
+
+      # 使用官方 tauri-action 构建 (和 augment-token-mng 一致)
       - name: Build Tauri app
-        run: npx tauri build ${{ matrix.args }} --bundles ${{ matrix.bundles }}
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --verbose ${{ matrix.args }} --bundles ${{ matrix.bundles }}
 
       # 统一上传逻辑
       # Windows 负责更新 Release 说明文案

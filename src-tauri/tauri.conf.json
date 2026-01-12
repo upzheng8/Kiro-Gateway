@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "identifier": "com.kiro.gateway",
   "build": {
-    "frontendDist": "../admin-ui/dist",
+    "frontendDist": "../dist",
     "devUrl": "http://localhost:5173/admin/",
-    "beforeDevCommand": "cd ../admin-ui && npm run dev",
-    "beforeBuildCommand": ""
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "windows": [
@@ -26,10 +26,7 @@
       "open": true
     },
     "fs": {
-      "scope": {
-        "allow": ["**"],
-        "require-literal-leading-dot": false
-      }
+      "requireLiteralLeadingDot": false
     }
   },
   "bundle": {
