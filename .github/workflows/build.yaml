@@ -5,11 +5,6 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version label for artifacts (e.g., 2026.1.1)"
-        required: true
-        default: "1.0.0"
 
 permissions:
   contents: write
@@ -82,8 +77,26 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          body: |
+            ## 🚀 Kiro Gateway ${{ github.ref_name }} 发布
+
+            ### 更新内容
+            1. 重构z-kiro,新增反代功能
+
+            ### 下载说明
+
+            **Windows:**
+            - `kiro-gateway_*_x64-setup.exe` - 安装版
+
+            **macOS:**
+            - `kiro-gateway_*_aarch64.dmg` - Apple Silicon（M系列芯片）
+            - `kiro-gateway_*_x64.dmg` - Intel
+
+            **Linux:**
+            - `kiro-gateway_*_amd64.deb` - Debian/Ubuntu
           files: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
             src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
 
       - name: Upload to Release (macOS)
@@ -101,4 +114,3 @@ jobs:
           tag_name: ${{ github.ref_name }}
           files: |
             src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
-            src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage

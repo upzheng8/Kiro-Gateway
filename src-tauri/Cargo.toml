@@ -1,6 +1,6 @@
 [package]
 name = "kiro-gateway"
-version = "1.0.2"
+version = "1.0.0"
 edition = "2024"
 
 [profile.release]
@@ -32,6 +32,9 @@ parking_lot = "0.12"  # 高性能同步原语
 subtle = "2.6"        # 常量时间比较（防止时序攻击）
 dirs = "5"            # 跨平台获取用户目录
 lazy_static = "1"     # 全局静态变量
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"       # Windows 注册表访问
 
 # GUI Dependencies
 # eframe = "0.29.1" # Deprecated for Tauri

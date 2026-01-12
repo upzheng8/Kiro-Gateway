@@ -22,6 +22,8 @@ use super::{
         get_groups, add_group, delete_group, rename_group, set_active_group, set_credential_group,
         // 代理服务控制
         get_proxy_status, set_proxy_enabled,
+        // 版本信息
+        get_version,
     },
     middleware::AdminState,
 };
@@ -92,6 +94,8 @@ pub fn create_admin_router(state: AdminState) -> Router {
         // 代理服务控制
         .route("/proxy/status", get(get_proxy_status))
         .route("/proxy/enabled", post(set_proxy_enabled))
+        // 版本信息
+        .route("/version", get(get_version))
         // 移除 API Key 认证中间件
         .with_state(state)
 }

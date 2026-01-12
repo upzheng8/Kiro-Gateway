@@ -12,6 +12,7 @@ mod logs;
 mod model;
 pub mod token;
 mod kiro_server;
+mod model_lock;
 
 use clap::Parser;
 use std::path::PathBuf;

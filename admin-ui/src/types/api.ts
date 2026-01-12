@@ -3,6 +3,7 @@ export interface CredentialsStatusResponse {
   total: number
   available: number
   currentId: number
+  localRefreshToken: string | null  // 本地 Kiro 客户端的 Refresh Token
   credentials: CredentialStatusItem[]
 }
 

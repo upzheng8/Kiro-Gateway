@@ -198,15 +198,25 @@ export async function clearLogs(): Promise<SuccessResponse> {
 export interface ConfigResponse {
   host: string;
   port: number;
+  proxyPort: number;
   apiKey: string | null;
   region: string;
+  autoRefreshEnabled: boolean;
+  autoRefreshIntervalMinutes: number;
+  lockedModel: string | null;
+  machineIdBackup: string | null;
 }
 
 export interface UpdateConfigRequest {
   host?: string;
   port?: number;
+  proxyPort?: number;
   apiKey?: string;
   region?: string;
+  autoRefreshEnabled?: boolean;
+  autoRefreshIntervalMinutes?: number;
+  lockedModel?: string;
+  machineIdBackup?: string;
 }
 
 export async function getConfig(): Promise<ConfigResponse> {
@@ -269,9 +279,14 @@ export async function exportCredentials(
 
 // ============ 机器码管理 API ============
 
+export interface MachineIdBackup {
+  machineId: string;
+  backupTime: string;
+}
+
 export interface MachineIdResponse {
   machineId: string | null;
-  machineIdBackup: string | null;
+  machineIdBackup: MachineIdBackup | null;
 }
 
 export async function getMachineId(): Promise<MachineIdResponse> {
@@ -411,4 +426,76 @@ export async function getProxyStatus(): Promise<ProxyStatusResponse> {
 export async function setProxyEnabled(enabled: boolean): Promise<SuccessResponse> {
   const { data } = await api.post<SuccessResponse>("/proxy/enabled", { enabled });
   return data;
+}
+
+// 版本信息响应
+export interface VersionResponse {
+  version: string;
+  name: string;
+}
+
+// 获取当前版本信息
+export async function getVersion(): Promise<VersionResponse> {
+  const { data } = await api.get<VersionResponse>("/version");
+  return data;
+}
+
+// GitHub Release 信息
+export interface GitHubRelease {
+  tag_name: string;
+  name: string;
+  html_url: string;
+  published_at: string;
+  body: string;
+}
+
+// 检查更新（从 GitHub Releases 获取最新版本）
+export async function checkUpdate(): Promise<{
+  hasUpdate: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  releaseUrl: string;
+  releaseBody: string;
+  publishedAt: string;
+}> {
+  // 获取当前版本
+  const { version: currentVersion } = await getVersion();
+  
+  // 从 GitHub Releases 获取最新版本
+  const response = await fetch(
+    'https://api.github.com/repos/Zheng-up/Kiro-Gateway/releases/latest'
+  );
+  
+  if (!response.ok) {
+    throw new Error('无法获取更新信息');
+  }
+  
+  const release: GitHubRelease = await response.json();
+  const latestVersion = release.tag_name.replace(/^v/, '');
+  
+  // 比较版本号
+  const hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
+  
+  return {
+    hasUpdate,
+    currentVersion,
+    latestVersion,
+    releaseUrl: release.html_url,
+    releaseBody: release.body || '暂无更新说明',
+    publishedAt: release.published_at,
+  };
+}
+
+// 版本号比较函数
+function compareVersions(v1: string, v2: string): number {
+  const parts1 = v1.split('.').map(Number);
+  const parts2 = v2.split('.').map(Number);
+  
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const p1 = parts1[i] || 0;
+    const p2 = parts2[i] || 0;
+    if (p1 > p2) return 1;
+    if (p1 < p2) return -1;
+  }
+  return 0;
 }

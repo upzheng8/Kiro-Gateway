@@ -172,8 +172,13 @@ pub async fn get_config() -> impl IntoResponse {
             let response = GetConfigResponse {
                 host: config.host,
                 port: config.port,
+                proxy_port: config.proxy_port,
                 api_key: config.api_key,
                 region: config.region,
+                auto_refresh_enabled: config.auto_refresh_enabled,
+                auto_refresh_interval_minutes: config.auto_refresh_interval_minutes,
+                locked_model: config.locked_model,
+                machine_id_backup: config.machine_id_backup,
             };
             Json(serde_json::json!(response)).into_response()
         }
@@ -210,21 +215,34 @@ pub async fn update_config(
     if let Some(port) = payload.port {
         config.port = port;
     }
+    if let Some(proxy_port) = payload.proxy_port {
+        config.proxy_port = proxy_port;
+    }
     if let Some(api_key) = payload.api_key {
         config.api_key = Some(api_key);
     }
     if let Some(region) = payload.region {
         config.region = region;
     }
+    if let Some(auto_refresh_enabled) = payload.auto_refresh_enabled {
+        config.auto_refresh_enabled = auto_refresh_enabled;
+    }
+    if let Some(auto_refresh_interval_minutes) = payload.auto_refresh_interval_minutes {
+        config.auto_refresh_interval_minutes = auto_refresh_interval_minutes;
+    }
+    if let Some(locked_model) = payload.locked_model {
+        config.locked_model = if locked_model.is_empty() { None } else { Some(locked_model) };
+    }
+    // machine_id_backup 应通过 backup API 设置，不通过 updateConfig
     
-    // 保存配置
+    // 保存设置
     match config.save(&config_path) {
         Ok(_) => {
-            tracing::info!("配置已更新并保存到: {:?}", config_path);
-            Json(SuccessResponse::new("配置已保存（需要重启服务生效）")).into_response()
+            tracing::info!("设置已更新并保存到: {:?}", config_path);
+            Json(SuccessResponse::new("设置已保存（需要重启服务生效）")).into_response()
         }
         Err(e) => {
-            let error = super::types::AdminErrorResponse::internal_error(format!("保存配置失败: {}", e));
+            let error = super::types::AdminErrorResponse::internal_error(format!("保存设置失败: {}", e));
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response()
         }
     }
@@ -247,27 +265,104 @@ fn get_config_path() -> std::path::PathBuf {
 // ============ 机器码管理 API ============
 
 /// GET /api/admin/machine-id
-/// 获取当前机器码信息
+/// 获取当前机器码信息（从Windows注册表读取）
 pub async fn get_machine_id() -> impl IntoResponse {
     use crate::model::config::Config;
     
+    // 从注册表读取机器码
+    let machine_id = get_system_machine_guid();
+    
+    // 从配置文件读取备份
     let config_path = get_config_path();
-    match Config::load(&config_path) {
-        Ok(config) => Json(serde_json::json!({
-            "machineId": config.machine_id,
-            "machineIdBackup": config.machine_id_backup
-        })).into_response(),
-        Err(e) => {
-            let error = super::types::AdminErrorResponse::internal_error(format!("读取配置失败: {}", e));
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response()
+    let machine_id_backup = match Config::load(&config_path) {
+        Ok(config) => config.machine_id_backup,
+        Err(_) => None,
+    };
+    
+    Json(serde_json::json!({
+        "machineId": machine_id,
+        "machineIdBackup": machine_id_backup
+    })).into_response()
+}
+
+/// 从 Windows 注册表读取 MachineGuid
+#[cfg(windows)]
+fn get_system_machine_guid() -> Option<String> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+    
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    match hklm.open_subkey("SOFTWARE\\Microsoft\\Cryptography") {
+        Ok(key) => {
+            match key.get_value::<String, _>("MachineGuid") {
+                Ok(guid) => Some(guid),
+                Err(_) => None,
+            }
         }
+        Err(_) => None,
     }
 }
 
-/// POST /api/admin/machine-id/backup
-/// 备份当前机器码
+/// 从 macOS 获取 Kiro 应用的机器码 (从 storage.json 读取)
+#[cfg(target_os = "macos")]
+fn get_system_machine_guid() -> Option<String> {
+    use std::fs;
+    
+    // Kiro 配置路径: ~/Library/Application Support/Kiro/User/globalStorage/storage.json
+    let home = dirs::home_dir()?;
+    let storage_path = home.join("Library/Application Support/Kiro/User/globalStorage/storage.json");
+    
+    if !storage_path.exists() {
+        return None;
+    }
+    
+    let content = fs::read_to_string(&storage_path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    
+    json.get("telemetry.machineId")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+/// 从 Linux 获取 Kiro 应用的机器码 (从 storage.json 读取)
+#[cfg(target_os = "linux")]
+fn get_system_machine_guid() -> Option<String> {
+    use std::fs;
+    
+    // Kiro 配置路径: ~/.config/Kiro/User/globalStorage/storage.json
+    let home = dirs::home_dir()?;
+    let storage_path = home.join(".config/Kiro/User/globalStorage/storage.json");
+    
+    if !storage_path.exists() {
+        return None;
+    }
+    
+    let content = fs::read_to_string(&storage_path).ok()?;
+    let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+    
+    json.get("telemetry.machineId")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+/// 其他平台不支持
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+fn get_system_machine_guid() -> Option<String> {
+    None
+}
+
+/// 备份当前机器码到配置文件
 pub async fn backup_machine_id() -> impl IntoResponse {
-    use crate::model::config::Config;
+    use crate::model::config::{Config, MachineIdBackup};
+    
+    // 从注册表读取当前机器码
+    let current_guid = match get_system_machine_guid() {
+        Some(guid) => guid,
+        None => {
+            let error = super::types::AdminErrorResponse::invalid_request("无法读取系统机器码");
+            return (axum::http::StatusCode::BAD_REQUEST, Json(error)).into_response();
+        }
+    };
     
     let config_path = get_config_path();
     let mut config = match Config::load(&config_path) {
@@ -278,26 +373,26 @@ pub async fn backup_machine_id() -> impl IntoResponse {
         }
     };
     
-    if let Some(machine_id) = &config.machine_id {
-        config.machine_id_backup = Some(machine_id.clone());
-        if let Err(e) = config.save(&config_path) {
-            let error = super::types::AdminErrorResponse::internal_error(format!("保存配置失败: {}", e));
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response();
-        }
-        Json(SuccessResponse::new("机器码已备份")).into_response()
-    } else {
-        let error = super::types::AdminErrorResponse::invalid_request("当前没有设置机器码");
-        (axum::http::StatusCode::BAD_REQUEST, Json(error)).into_response()
+    // 保存机器码和备份时间
+    config.machine_id_backup = Some(MachineIdBackup {
+        machine_id: current_guid,
+        backup_time: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    });
+    
+    if let Err(e) = config.save(&config_path) {
+        let error = super::types::AdminErrorResponse::internal_error(format!("保存设置失败: {}", e));
+        return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response();
     }
+    Json(SuccessResponse::new("机器码已备份")).into_response()
 }
 
 /// POST /api/admin/machine-id/restore
-/// 从备份恢复机器码
+/// 从备份恢复机器码到注册表
 pub async fn restore_machine_id() -> impl IntoResponse {
     use crate::model::config::Config;
     
     let config_path = get_config_path();
-    let mut config = match Config::load(&config_path) {
+    let config = match Config::load(&config_path) {
         Ok(c) => c,
         Err(e) => {
             let error = super::types::AdminErrorResponse::internal_error(format!("读取配置失败: {}", e));
@@ -306,12 +401,13 @@ pub async fn restore_machine_id() -> impl IntoResponse {
     };
     
     if let Some(backup) = &config.machine_id_backup {
-        config.machine_id = Some(backup.clone());
-        if let Err(e) = config.save(&config_path) {
-            let error = super::types::AdminErrorResponse::internal_error(format!("保存配置失败: {}", e));
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response();
+        match set_system_machine_guid(&backup.machine_id) {
+            Ok(_) => Json(SuccessResponse::new("机器码已恢复（重启系统后生效）")).into_response(),
+            Err(e) => {
+                let error = super::types::AdminErrorResponse::internal_error(format!("写入注册表失败: {}。请以管理员身份运行程序。", e));
+                (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response()
+            }
         }
-        Json(SuccessResponse::new("机器码已从备份恢复")).into_response()
     } else {
         let error = super::types::AdminErrorResponse::invalid_request("没有可用的机器码备份");
         (axum::http::StatusCode::BAD_REQUEST, Json(error)).into_response()
@@ -319,25 +415,113 @@ pub async fn restore_machine_id() -> impl IntoResponse {
 }
 
 /// POST /api/admin/machine-id/reset
-/// 重置机器码（清空，下次请求时自动生成新的）
+/// 重置机器码（生成新的 UUID 写入注册表）
 pub async fn reset_machine_id() -> impl IntoResponse {
-    use crate::model::config::Config;
+    let new_guid = uuid::Uuid::new_v4().to_string().to_uppercase();
     
-    let config_path = get_config_path();
-    let mut config = match Config::load(&config_path) {
-        Ok(c) => c,
+    match set_system_machine_guid(&new_guid) {
+        Ok(_) => Json(SuccessResponse::new("机器码已重置（重启系统后生效）")).into_response(),
         Err(e) => {
-            let error = super::types::AdminErrorResponse::internal_error(format!("读取配置失败: {}", e));
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response();
+            let error = super::types::AdminErrorResponse::internal_error(format!("写入注册表失败: {}。请以管理员身份运行程序。", e));
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response()
         }
+    }
+}
+
+/// 设置 Windows 注册表中的 MachineGuid
+#[cfg(windows)]
+fn set_system_machine_guid(guid: &str) -> Result<(), String> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+    
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    match hklm.open_subkey_with_flags("SOFTWARE\\Microsoft\\Cryptography", KEY_SET_VALUE) {
+        Ok(key) => {
+            match key.set_value("MachineGuid", &guid) {
+                Ok(_) => Ok(()),
+                Err(e) => Err(format!("{}", e)),
+            }
+        }
+        Err(e) => Err(format!("{}", e)),
+    }
+}
+
+/// macOS: 修改 Kiro 应用的 storage.json 中的 telemetry.machineId（应用级别）
+#[cfg(target_os = "macos")]
+fn set_system_machine_guid(guid: &str) -> Result<(), String> {
+    use std::fs;
+    
+    // Kiro 配置路径: ~/Library/Application Support/Kiro/User/globalStorage/storage.json
+    let home = dirs::home_dir().ok_or("无法获取用户目录")?;
+    let storage_path = home.join("Library/Application Support/Kiro/User/globalStorage/storage.json");
+    
+    // 读取现有配置
+    let mut json: serde_json::Value = if storage_path.exists() {
+        let content = fs::read_to_string(&storage_path)
+            .map_err(|e| format!("读取配置失败: {}", e))?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("解析配置失败: {}", e))?
+    } else {
+        // 创建目录
+        if let Some(parent) = storage_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("创建目录失败: {}", e))?;
+        }
+        serde_json::json!({})
     };
     
-    config.machine_id = None;
-    if let Err(e) = config.save(&config_path) {
-        let error = super::types::AdminErrorResponse::internal_error(format!("保存配置失败: {}", e));
-        return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response();
-    }
-    Json(SuccessResponse::new("机器码已重置")).into_response()
+    // 更新 telemetry.machineId
+    json["telemetry.machineId"] = serde_json::json!(guid);
+    
+    // 写回配置
+    let content = serde_json::to_string_pretty(&json)
+        .map_err(|e| format!("序列化配置失败: {}", e))?;
+    fs::write(&storage_path, content)
+        .map_err(|e| format!("写入配置失败: {}", e))?;
+    
+    Ok(())
+}
+
+/// Linux: 修改 Kiro 应用的 storage.json 中的 telemetry.machineId（应用级别）
+#[cfg(target_os = "linux")]
+fn set_system_machine_guid(guid: &str) -> Result<(), String> {
+    use std::fs;
+    
+    // Kiro 配置路径: ~/.config/Kiro/User/globalStorage/storage.json
+    let home = dirs::home_dir().ok_or("无法获取用户目录")?;
+    let storage_path = home.join(".config/Kiro/User/globalStorage/storage.json");
+    
+    // 读取现有配置
+    let mut json: serde_json::Value = if storage_path.exists() {
+        let content = fs::read_to_string(&storage_path)
+            .map_err(|e| format!("读取配置失败: {}", e))?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("解析配置失败: {}", e))?
+    } else {
+        // 创建目录
+        if let Some(parent) = storage_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("创建目录失败: {}", e))?;
+        }
+        serde_json::json!({})
+    };
+    
+    // 更新 telemetry.machineId
+    json["telemetry.machineId"] = serde_json::json!(guid);
+    
+    // 写回配置
+    let content = serde_json::to_string_pretty(&json)
+        .map_err(|e| format!("序列化配置失败: {}", e))?;
+    fs::write(&storage_path, content)
+        .map_err(|e| format!("写入配置失败: {}", e))?;
+    
+    Ok(())
+}
+
+/// 其他平台不支持
+#[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+fn set_system_machine_guid(_guid: &str) -> Result<(), String> {
+    Err("当前平台不支持修改机器码".to_string())
 }
 
 // ============ 批量操作 API ============
@@ -460,12 +644,15 @@ pub async fn set_locked_model(
         }
     };
     
-    config.locked_model = payload.model;
+    config.locked_model = payload.model.clone();
     
     if let Err(e) = config.save(&config_path) {
-        let error = super::types::AdminErrorResponse::internal_error(format!("保存配置失败: {}", e));
+        let error = super::types::AdminErrorResponse::internal_error(format!("保存设置失败: {}", e));
         return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response();
     }
+    
+    // 更新模型锁定监控器
+    crate::model_lock::set_locked_model(payload.model.clone());
     
     let msg = if config.locked_model.is_some() {
         format!("模型已锁定为: {}", config.locked_model.as_ref().unwrap())
@@ -624,9 +811,9 @@ pub async fn add_group(
             name: payload.name.clone(),
         });
         
-        // 保存配置
+        // 保存设置
         if let Err(e) = config.save(get_config_path()) {
-            let error = super::types::AdminErrorResponse::internal_error(format!("保存配置失败: {}", e));
+            let error = super::types::AdminErrorResponse::internal_error(format!("保存设置失败: {}", e));
             return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response();
         }
     }
@@ -666,9 +853,9 @@ pub async fn delete_group(
                 config.active_group_id = None;
             }
             
-            // 保存配置
+            // 保存设置
             if let Err(e) = config.save(get_config_path()) {
-                let error = super::types::AdminErrorResponse::internal_error(format!("保存配置失败: {}", e));
+                let error = super::types::AdminErrorResponse::internal_error(format!("保存设置失败: {}", e));
                 return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response();
             }
         } else {
@@ -700,9 +887,9 @@ pub async fn rename_group(
         if let Some(group) = config.groups.iter_mut().find(|g| g.id == group_id) {
             group.name = payload.name.clone();
             
-            // 保存配置
+            // 保存设置
             if let Err(e) = config.save(get_config_path()) {
-                let error = super::types::AdminErrorResponse::internal_error(format!("保存配置失败: {}", e));
+                let error = super::types::AdminErrorResponse::internal_error(format!("保存设置失败: {}", e));
                 return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response();
             }
         } else {
@@ -733,12 +920,15 @@ pub async fn set_active_group(
         
         config.active_group_id = payload.group_id.clone();
         
-        // 保存配置
+        // 保存设置
         if let Err(e) = config.save(get_config_path()) {
-            let error = super::types::AdminErrorResponse::internal_error(format!("保存配置失败: {}", e));
+            let error = super::types::AdminErrorResponse::internal_error(format!("保存设置失败: {}", e));
             return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response();
         }
     }
+    
+    // 同步更新 token_manager 的活跃分组
+    state.token_manager.set_active_group(payload.group_id.clone());
     
     let msg = match payload.group_id {
         Some(gid) => format!("已切换到分组 '{}'", gid),
@@ -780,12 +970,24 @@ pub async fn set_credential_group(
 pub async fn get_proxy_status(
     State(state): State<AdminState>,
 ) -> impl IntoResponse {
-    let config = state.config.lock();
+    // 先获取配置值，释放锁
+    let (host, proxy_port, active_group_id) = {
+        let config = state.config.lock();
+        (config.host.clone(), config.proxy_port, config.active_group_id.clone())
+    };
+    
+    // 优先使用双端口模式的控制器状态
+    let running = if let Some(controller) = &state.proxy_server_controller {
+        controller.lock().await.is_running()
+    } else {
+        state.is_proxy_running()
+    };
+    
     let response = super::types::ProxyStatusResponse {
-        running: state.is_proxy_running(),
-        host: config.host.clone(),
-        port: config.port,
-        active_group_id: config.active_group_id.clone(),
+        running,
+        host,
+        port: proxy_port,
+        active_group_id,
     };
     Json(response)
 }
@@ -796,11 +998,58 @@ pub async fn set_proxy_enabled(
     State(state): State<AdminState>,
     Json(payload): Json<super::types::SetProxyEnabledRequest>,
 ) -> impl IntoResponse {
+    // 检查是否使用双端口模式
+    if let (Some(controller), Some(ctx)) = (&state.proxy_server_controller, &state.admin_context) {
+        let mut controller = controller.lock().await;
+        let was_running = controller.is_running();
+        
+        if payload.enabled && !was_running {
+            // 启动反代服务
+            match controller.start(ctx).await {
+                Ok(_) => {
+                    // 启动时重新选择当前分组的凭证
+                    state.token_manager.refresh_credential_selection();
+                    state.set_proxy_enabled(true);
+                    state.proxy_controller.set_running(true);
+                    // 保存开关状态到配置
+                    {
+                        let mut config = state.config.lock();
+                        config.proxy_auto_start = true;
+                        if let Err(e) = config.save(get_config_path()) {
+                            tracing::warn!("保存设置失败: {}", e);
+                        }
+                    }
+                    return Json(SuccessResponse::new("反代服务已启动".to_string()));
+                }
+                Err(e) => {
+                    return Json(SuccessResponse::new(format!("启动失败: {}", e)));
+                }
+            }
+        } else if !payload.enabled && was_running {
+            // 停止反代服务
+            controller.stop();
+            state.set_proxy_enabled(false);
+            state.proxy_controller.set_running(false);
+            // 保存开关状态到配置
+            {
+                let mut config = state.config.lock();
+                config.proxy_auto_start = false;
+                if let Err(e) = config.save(get_config_path()) {
+                    tracing::warn!("保存设置失败: {}", e);
+                }
+            }
+            return Json(SuccessResponse::new("反代服务已停止".to_string()));
+        } else if payload.enabled {
+            return Json(SuccessResponse::new("反代服务已在运行中".to_string()));
+        } else {
+            return Json(SuccessResponse::new("反代服务已停止".to_string()));
+        }
+    }
+    
+    // 旧版单端口模式（软禁用）
     let was_enabled = state.is_proxy_enabled();
     
-    // 设置代理启用状态
     state.set_proxy_enabled(payload.enabled);
-    // 同步更新控制器运行状态
     state.proxy_controller.set_running(payload.enabled);
     
     let msg = if payload.enabled && !was_enabled {
@@ -814,4 +1063,13 @@ pub async fn set_proxy_enabled(
     };
     
     Json(SuccessResponse::new(msg.to_string()))
+}
+
+/// GET /api/admin/version
+/// 获取版本信息
+pub async fn get_version() -> impl IntoResponse {
+    Json(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "name": env!("CARGO_PKG_NAME")
+    }))
 }

@@ -56,10 +56,16 @@ impl AdminService {
         // 按优先级排序（数字越小优先级越高）
         credentials.sort_by_key(|c| c.priority);
 
+        // 读取本地 Kiro 客户端的 Refresh Token
+        let local_refresh_token = super::local_account::read_local_credential()
+            .ok()
+            .and_then(|c| c.refresh_token);
+
         CredentialsStatusResponse {
             total: snapshot.total,
             available: snapshot.available,
             current_id: snapshot.current_id,
+            local_refresh_token,
             credentials,
         }
     }

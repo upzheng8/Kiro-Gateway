@@ -1,6 +1,7 @@
 //! Admin API 类型定义
 
 use serde::{Deserialize, Serialize};
+use crate::model::config::MachineIdBackup;
 
 // ============ 凭证状态 ============
 
@@ -12,8 +13,10 @@ pub struct CredentialsStatusResponse {
     pub total: usize,
     /// 可用凭证数量（未禁用）
     pub available: usize,
-    /// 当前活跃凭证 ID
+    /// 当前活跃凭证 ID（反代使用）
     pub current_id: u64,
+    /// 本地 Kiro 客户端的 Refresh Token（用于匹配高亮）
+    pub local_refresh_token: Option<String>,
     /// 各凭证状态列表
     pub credentials: Vec<CredentialStatusItem>,
 }
@@ -312,12 +315,22 @@ impl AdminErrorResponse {
 pub struct GetConfigResponse {
     /// 监听地址
     pub host: String,
-    /// 监听端口
+    /// Admin API 监听端口
     pub port: u16,
+    /// 反代服务端口
+    pub proxy_port: u16,
     /// API 密钥
     pub api_key: Option<String>,
     /// AWS 区域
     pub region: String,
+    /// 是否启用自动刷新
+    pub auto_refresh_enabled: bool,
+    /// 自动刷新间隔（分钟）
+    pub auto_refresh_interval_minutes: u32,
+    /// 模型锁定
+    pub locked_model: Option<String>,
+    /// 机器码备份
+    pub machine_id_backup: Option<MachineIdBackup>,
 }
 
 /// 更新配置请求
@@ -326,12 +339,21 @@ pub struct GetConfigResponse {
 pub struct UpdateConfigRequest {
     /// 监听地址（可选）
     pub host: Option<String>,
-    /// 监听端口（可选）
+    /// Admin API 端口（可选）
     pub port: Option<u16>,
+    /// 反代服务端口（可选）
+    pub proxy_port: Option<u16>,
     /// API 密钥（可选）
     pub api_key: Option<String>,
     /// AWS 区域（可选）
     pub region: Option<String>,
+    /// 是否启用自动刷新（可选）
+    pub auto_refresh_enabled: Option<bool>,
+    /// 自动刷新间隔（可选）
+    pub auto_refresh_interval_minutes: Option<u32>,
+    /// 模型锁定（可选）
+    pub locked_model: Option<String>,
+    // machine_id_backup 应通过 backup API 设置
 }
 
 // ============ 批量操作 ============

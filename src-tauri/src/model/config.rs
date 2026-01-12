@@ -1,6 +1,70 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Deserializer};
 use std::fs;
 use std::path::Path;
+
+/// 机器码备份信息
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MachineIdBackup {
+    pub machine_id: String,
+    pub backup_time: String,
+}
+
+// 自定义反序列化：支持旧的字符串格式和新的结构体格式
+impl<'de> Deserialize<'de> for MachineIdBackup {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::{self, MapAccess, Visitor};
+        use std::fmt;
+
+        struct MachineIdBackupVisitor;
+
+        impl<'de> Visitor<'de> for MachineIdBackupVisitor {
+            type Value = MachineIdBackup;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a string or a struct with machineId and backupTime")
+            }
+
+            // 旧格式：直接是字符串
+            fn visit_str<E>(self, value: &str) -> Result<MachineIdBackup, E>
+            where
+                E: de::Error,
+            {
+                Ok(MachineIdBackup {
+                    machine_id: value.to_string(),
+                    backup_time: "未知".to_string(),
+                })
+            }
+
+            // 新格式：结构体
+            fn visit_map<M>(self, mut map: M) -> Result<MachineIdBackup, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut machine_id = None;
+                let mut backup_time = None;
+
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "machineId" => machine_id = Some(map.next_value()?),
+                        "backupTime" => backup_time = Some(map.next_value()?),
+                        _ => { let _ = map.next_value::<serde_json::Value>(); }
+                    }
+                }
+
+                Ok(MachineIdBackup {
+                    machine_id: machine_id.ok_or_else(|| de::Error::missing_field("machineId"))?,
+                    backup_time: backup_time.unwrap_or_else(|| "未知".to_string()),
+                })
+            }
+        }
+
+        deserializer.deserialize_any(MachineIdBackupVisitor)
+    }
+}
 
 /// KNA 应用配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,14 +76,15 @@ pub struct Config {
     #[serde(default = "default_port")]
     pub port: u16,
 
+    /// 反代服务独立端口（可选，默认 8991）
+    #[serde(default = "default_proxy_port")]
+    pub proxy_port: u16,
+
     #[serde(default = "default_region")]
     pub region: String,
 
     #[serde(default = "default_kiro_version")]
     pub kiro_version: String,
-
-    #[serde(default)]
-    pub machine_id: Option<String>,
 
     #[serde(default)]
     pub api_key: Option<String>,
@@ -30,42 +95,13 @@ pub struct Config {
     #[serde(default = "default_node_version")]
     pub node_version: String,
 
-    /// 外部 count_tokens API 地址（可选）
-    #[serde(default)]
-    pub count_tokens_api_url: Option<String>,
-
-    /// count_tokens API 密钥（可选）
-    #[serde(default)]
-    pub count_tokens_api_key: Option<String>,
-
-    /// count_tokens API 认证类型（可选，"x-api-key" 或 "bearer"，默认 "x-api-key"）
-    #[serde(default = "default_count_tokens_auth_type")]
-    pub count_tokens_auth_type: String,
-
-    /// HTTP 代理地址（可选）
-    /// 支持格式: http://host:port, https://host:port, socks5://host:port
-    #[serde(default)]
-    pub proxy_url: Option<String>,
-
-    /// 代理认证用户名（可选）
-    #[serde(default)]
-    pub proxy_username: Option<String>,
-
-    /// 代理认证密码（可选）
-    #[serde(default)]
-    pub proxy_password: Option<String>,
-
-    /// Admin API 密钥（可选，启用 Admin API 功能）
-    #[serde(default)]
-    pub admin_api_key: Option<String>,
-
     /// 锁定的模型名称（可选，仅影响客户端操作）
     #[serde(default)]
     pub locked_model: Option<String>,
 
     /// 机器码备份（可选，用于恢复）
     #[serde(default)]
-    pub machine_id_backup: Option<String>,
+    pub machine_id_backup: Option<MachineIdBackup>,
 
     /// 分组列表（id -> 名称映射）
     #[serde(default = "default_groups")]
@@ -74,6 +110,18 @@ pub struct Config {
     /// 反代使用的分组 ID（为空表示使用所有分组）
     #[serde(default)]
     pub active_group_id: Option<String>,
+
+    /// 反代服务是否自动启动
+    #[serde(default)]
+    pub proxy_auto_start: bool,
+
+    /// 是否启用自动刷新 Token
+    #[serde(default)]
+    pub auto_refresh_enabled: bool,
+
+    /// 自动刷新间隔（分钟），默认 10 分钟
+    #[serde(default = "default_auto_refresh_interval")]
+    pub auto_refresh_interval_minutes: u32,
 }
 
 /// 分组配置
@@ -96,7 +144,11 @@ fn default_host() -> String {
 }
 
 fn default_port() -> u16 {
-    8080
+    8990
+}
+
+fn default_proxy_port() -> u16 {
+    8991
 }
 
 fn default_region() -> String {
@@ -116,8 +168,8 @@ fn default_node_version() -> String {
     "22.21.1".to_string()
 }
 
-fn default_count_tokens_auth_type() -> String {
-    "x-api-key".to_string()
+fn default_auto_refresh_interval() -> u32 {
+    10 // 默认 10 分钟
 }
 
 impl Default for Config {
@@ -125,23 +177,19 @@ impl Default for Config {
         Self {
             host: default_host(),
             port: default_port(),
+            proxy_port: default_proxy_port(),
             region: default_region(),
             kiro_version: default_kiro_version(),
-            machine_id: None,
             api_key: None,
             system_version: default_system_version(),
             node_version: default_node_version(),
-            count_tokens_api_url: None,
-            count_tokens_api_key: None,
-            count_tokens_auth_type: default_count_tokens_auth_type(),
-            proxy_url: None,
-            proxy_username: None,
-            proxy_password: None,
-            admin_api_key: None,
             locked_model: None,
             machine_id_backup: None,
             groups: default_groups(),
             active_group_id: None,
+            proxy_auto_start: false,
+            auto_refresh_enabled: false,
+            auto_refresh_interval_minutes: default_auto_refresh_interval(),
         }
     }
 }

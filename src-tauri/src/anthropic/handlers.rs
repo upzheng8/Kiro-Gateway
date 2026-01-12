@@ -1,6 +1,8 @@
 //! Anthropic API Handler 函数
 
 use std::convert::Infallible;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::kiro::model::events::Event;
 use crate::kiro::model::requests::kiro::KiroRequest;
@@ -203,6 +205,7 @@ pub async fn post_messages(
             &payload.model,
             input_tokens,
             thinking_enabled,
+            state.proxy_enabled.clone(),
         )
         .await
     } else {
@@ -218,6 +221,7 @@ async fn handle_stream_request(
     model: &str,
     input_tokens: i32,
     thinking_enabled: bool,
+    proxy_enabled: Arc<AtomicBool>,
 ) -> Response {
     // 调用 Kiro API（支持多凭证故障转移）
     let response = match provider.call_api_stream(request_body).await {
@@ -242,7 +246,7 @@ async fn handle_stream_request(
     let initial_events = ctx.generate_initial_events();
 
     // 创建 SSE 流
-    let stream = create_sse_stream(response, ctx, initial_events);
+    let stream = create_sse_stream(response, ctx, initial_events, proxy_enabled);
 
     // 返回 SSE 响应
     Response::builder()
@@ -267,6 +271,7 @@ fn create_sse_stream(
     response: reqwest::Response,
     ctx: StreamContext,
     initial_events: Vec<SseEvent>,
+    proxy_enabled: Arc<AtomicBool>,
 ) -> impl Stream<Item = Result<Bytes, Infallible>> {
     // 先发送初始事件
     let initial_stream = stream::iter(
@@ -279,13 +284,31 @@ fn create_sse_stream(
     let body_stream = response.bytes_stream();
 
     let processing_stream = stream::unfold(
-        (body_stream, ctx, EventStreamDecoder::new(), false, interval(Duration::from_secs(PING_INTERVAL_SECS))),
-        |(mut body_stream, mut ctx, mut decoder, finished, mut ping_interval)| async move {
+        (body_stream, ctx, EventStreamDecoder::new(), false, interval(Duration::from_secs(PING_INTERVAL_SECS)), proxy_enabled),
+        |(mut body_stream, mut ctx, mut decoder, finished, mut ping_interval, proxy_enabled)| async move {
             if finished {
                 return None;
             }
 
-            // 使用 select! 同时等待数据和 ping 定时器
+            // 检查代理是否被禁用，如果禁用则中断流
+            if !proxy_enabled.load(Ordering::SeqCst) {
+                tracing::info!("代理服务已禁用，中断正在进行的流式响应");
+                // 发送错误事件并结束
+                let error_event = SseEvent::new(
+                    "error",
+                    json!({
+                        "type": "error",
+                        "error": {
+                            "type": "service_unavailable",
+                            "message": "Proxy service has been disabled"
+                        }
+                    }),
+                );
+                let bytes: Vec<Result<Bytes, Infallible>> = vec![Ok(Bytes::from(error_event.to_sse_string()))];
+                return Some((stream::iter(bytes), (body_stream, ctx, decoder, true, ping_interval, proxy_enabled)));
+            }
+
+            // 使用 select! 同时等待数据、ping 定时器和代理状态检查
             tokio::select! {
                 // 处理数据流
                 chunk_result = body_stream.next() => {
@@ -317,7 +340,7 @@ fn create_sse_stream(
                                 .map(|e| Ok(Bytes::from(e.to_sse_string())))
                                 .collect();
 
-                            Some((stream::iter(bytes), (body_stream, ctx, decoder, false, ping_interval)))
+                            Some((stream::iter(bytes), (body_stream, ctx, decoder, false, ping_interval, proxy_enabled)))
                         }
                         Some(Err(e)) => {
                             tracing::error!("读取响应流失败: {}", e);
@@ -327,7 +350,7 @@ fn create_sse_stream(
                                 .into_iter()
                                 .map(|e| Ok(Bytes::from(e.to_sse_string())))
                                 .collect();
-                            Some((stream::iter(bytes), (body_stream, ctx, decoder, true, ping_interval)))
+                            Some((stream::iter(bytes), (body_stream, ctx, decoder, true, ping_interval, proxy_enabled)))
                         }
                         None => {
                             // 流结束，发送最终事件
@@ -336,7 +359,7 @@ fn create_sse_stream(
                                 .into_iter()
                                 .map(|e| Ok(Bytes::from(e.to_sse_string())))
                                 .collect();
-                            Some((stream::iter(bytes), (body_stream, ctx, decoder, true, ping_interval)))
+                            Some((stream::iter(bytes), (body_stream, ctx, decoder, true, ping_interval, proxy_enabled)))
                         }
                     }
                 }
@@ -344,7 +367,29 @@ fn create_sse_stream(
                 _ = ping_interval.tick() => {
                     tracing::trace!("发送 ping 保活事件");
                     let bytes: Vec<Result<Bytes, Infallible>> = vec![Ok(create_ping_sse())];
-                    Some((stream::iter(bytes), (body_stream, ctx, decoder, false, ping_interval)))
+                    Some((stream::iter(bytes), (body_stream, ctx, decoder, false, ping_interval, proxy_enabled)))
+                }
+                // 快速检查代理状态（500ms 间隔）
+                _ = tokio::time::sleep(Duration::from_millis(500)) => {
+                    // 检查代理是否被禁用
+                    if !proxy_enabled.load(Ordering::SeqCst) {
+                        tracing::info!("代理服务已禁用，中断正在进行的流式响应");
+                        let error_event = SseEvent::new(
+                            "error",
+                            json!({
+                                "type": "error",
+                                "error": {
+                                    "type": "service_unavailable",
+                                    "message": "Proxy service has been disabled"
+                                }
+                            }),
+                        );
+                        let bytes: Vec<Result<Bytes, Infallible>> = vec![Ok(Bytes::from(error_event.to_sse_string()))];
+                        return Some((stream::iter(bytes), (body_stream, ctx, decoder, true, ping_interval, proxy_enabled)));
+                    }
+                    // 代理仍启用，返回空事件继续循环
+                    let bytes: Vec<Result<Bytes, Infallible>> = vec![];
+                    Some((stream::iter(bytes), (body_stream, ctx, decoder, false, ping_interval, proxy_enabled)))
                 }
             }
         },

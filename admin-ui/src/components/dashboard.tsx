@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { RefreshCw, Moon, Sun, Server, Plus, Settings, Terminal, Save, Trash2, ToggleLeft, ToggleRight, Ghost, Eye, Info, Download, ChevronLeft, ChevronRight, ChevronDown, FolderOpen, FolderInput } from 'lucide-react'
+import { RefreshCw, Moon, Sun, Server, Plus, Terminal, Save, Trash2, ToggleLeft, ToggleRight, Ghost, Eye, Info, Download, ChevronLeft, ChevronRight, ChevronDown, FolderOpen, FolderInput, Key, Network, QrCode, Settings2, Globe } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -7,11 +7,12 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { BalanceDialog } from '@/components/balance-dialog'
 import { AddCredentialDialog } from '@/components/add-credential-dialog'
-import { AboutDialog } from '@/components/about-dialog'
 import { ExportDialog } from '@/components/export-dialog'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { AboutSection } from '@/components/about-section'
+import { UpdateDialog } from '@/components/update-dialog'
 import { useCredentials } from '@/hooks/use-credentials'
-import { setCredentialDisabled, deleteCredential } from '@/api/credentials'
+import { setCredentialDisabled, deleteCredential, checkUpdate } from '@/api/credentials'
 
 interface DashboardProps {
   onLogout?: () => void
@@ -79,7 +80,6 @@ export function Dashboard(_props: DashboardProps) {
   const [selectedCredential, setSelectedCredential] = useState<import('@/types/api').CredentialStatusItem | null>(null)
   const [balanceDialogOpen, setBalanceDialogOpen] = useState(false)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
-  const [aboutDialogOpen, setAboutDialogOpen] = useState(false)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('credentials')
   
@@ -131,7 +131,50 @@ export function Dashboard(_props: DashboardProps) {
   const [editGroupName, setEditGroupName] = useState('')
   
   // 代理服务状态
-  const [proxyRunning, setProxyRunning] = useState(true)
+  const [proxyRunning, setProxyRunning] = useState(false)
+  const [proxyToggling, setProxyToggling] = useState(false)  // 开关切换中
+  const [proxyPort, setProxyPort] = useState('8991')
+
+  // 系统设置状态
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false)
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState(10)
+  const [lockedModel, setLockedModel] = useState('')
+  const [selectedModel, setSelectedModel] = useState('')
+  const [currentMachineId, setCurrentMachineId] = useState('')
+  const [backupMachineId, setBackupMachineId] = useState<{ machineId: string, backupTime: string } | null>(null)
+
+  // 更新弹窗状态
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
+  const [updateInfo, setUpdateInfo] = useState<{
+    currentVersion: string;
+    latestVersion: string;
+    releaseUrl: string;
+    releaseBody: string;
+    publishedAt: string;
+  } | null>(null)
+
+  // 应用启动时自动检查更新
+  useEffect(() => {
+    const autoCheckUpdate = async () => {
+      try {
+        const result = await checkUpdate()
+        if (result.hasUpdate) {
+          setUpdateInfo({
+            currentVersion: result.currentVersion,
+            latestVersion: result.latestVersion,
+            releaseUrl: result.releaseUrl,
+            releaseBody: result.releaseBody,
+            publishedAt: result.publishedAt,
+          })
+          setUpdateDialogOpen(true)
+        }
+      } catch (e) {
+        // 静默失败，不显示错误
+        console.error('自动检查更新失败:', e)
+      }
+    }
+    autoCheckUpdate()
+  }, [])
 
   // 从后端获取真实日志
   useEffect(() => {
@@ -166,11 +209,30 @@ export function Dashboard(_props: DashboardProps) {
         const config = await getConfig()
         setConfigHost(config.host)
         setConfigPort(config.port.toString())
+        setProxyPort(config.proxyPort.toString())
         setConfigApiKey(config.apiKey || '')
+        // 系统设置
+        setAutoRefreshEnabled(config.autoRefreshEnabled)
+        setAutoRefreshInterval(config.autoRefreshIntervalMinutes)
+        const locked = config.lockedModel || ''
+        setLockedModel(locked)
+        setSelectedModel(locked) // 初始时 selectedModel 等于 lockedModel
+        
+        // 加载机器码
+        try {
+          const { getMachineId } = await import('@/api/credentials')
+          const machineIdRes = await getMachineId()
+          setCurrentMachineId(machineIdRes.machineId || '未配置')
+          setBackupMachineId(machineIdRes.machineIdBackup || null)
+        } catch (err) {
+          console.error('加载机器码失败:', err)
+          setCurrentMachineId('加载失败')
+        }
       } catch (e) {
         // 忽略错误，使用默认值
         setConfigHost('127.0.0.1')
         setConfigPort('8990')
+        setProxyPort('8991')
         setConfigApiKey('')
       } finally {
         setConfigLoading(false)
@@ -200,7 +262,14 @@ export function Dashboard(_props: DashboardProps) {
     fetchGroups()
   }, [])
 
-
+  // 刷新分组列表（用于凭证操作后更新计数）
+  const refreshGroups = async () => {
+    try {
+      const { getGroups } = await import('@/api/credentials')
+      const response = await getGroups()
+      setGroups(response.groups)
+    } catch {}
+  }
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -316,7 +385,13 @@ export function Dashboard(_props: DashboardProps) {
   const handleSaveConfig = async () => {
     const port = parseInt(configPort, 10)
     if (isNaN(port) || port < 1 || port > 65535) {
-      toast.error('端口号必须是 1-65535 之间的数字')
+      toast.error('Admin 端口号必须是 1-65535 之间的数字')
+      return
+    }
+    
+    const pPort = parseInt(proxyPort, 10)
+    if (isNaN(pPort) || pPort < 1 || pPort > 65535) {
+      toast.error('反代端口号必须是 1-65535 之间的数字')
       return
     }
     
@@ -326,13 +401,14 @@ export function Dashboard(_props: DashboardProps) {
       const result = await updateConfig({
         host: configHost,
         port: port,
+        proxyPort: pPort,
         apiKey: configApiKey || undefined,
       })
       toast.success(result.message)
-      addLog('[System] 配置已保存')
+      addLog('[System] 设置已保存')
     } catch (e) {
-      toast.error('保存配置失败')
-      addLog('[Error] 保存配置失败')
+      toast.error('保存设置失败')
+      addLog('[Error] 保存设置失败')
     } finally {
       setConfigSaving(false)
     }
@@ -342,6 +418,7 @@ export function Dashboard(_props: DashboardProps) {
     try {
       await setCredentialDisabled(id, !currentDisabled)
       refetch()
+      refreshGroups()
       toast.success(currentDisabled ? '已启用凭证' : '已禁用凭证')
       addLog(`[System] 凭证 #${id} ${currentDisabled ? '已启用' : '已禁用'}`)
     } catch (e) {
@@ -362,6 +439,7 @@ export function Dashboard(_props: DashboardProps) {
     try {
       await deleteCredential(pendingDeleteId)
       refetch()
+      refreshGroups()
       toast.success('已删除凭证')
       addLog(`[System] 凭证 #${pendingDeleteId} 已删除`)
     } catch (e: any) {
@@ -381,6 +459,7 @@ export function Dashboard(_props: DashboardProps) {
       toast.success(result.message)
       setSelectedIds(new Set())
       refetch()
+      refreshGroups()
       addLog(`[System] 批量删除 ${ids.length} 个凭证成功`)
     } catch (e: any) {
       toast.error('删除失败')
@@ -444,7 +523,7 @@ export function Dashboard(_props: DashboardProps) {
               }`}
             >
               <div className="flex items-center gap-3">
-                <Server className="h-4 w-4" />
+                <Key className="h-4 w-4" />
                 凭证管理
               </div>
               <ChevronDown className={`h-3 w-3 transition-transform ${groupsExpanded ? '' : '-rotate-90'}`} />
@@ -453,20 +532,26 @@ export function Dashboard(_props: DashboardProps) {
             {/* 分组列表 */}
             {groupsExpanded && (
               <div className="mt-1 ml-3 space-y-0.5">
-                {/* 全部分组 */}
+                {/* 全部 */}
                 <button
                   onClick={() => {
                     setSelectedGroupId('all')
                     setActiveTab('credentials')
                     setSelectedIds(new Set())
+                    setCurrentPage(1)
                   }}
-                  className={`w-full flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors ${
+                  className={`w-full flex items-center gap-2 pl-4 pr-3 py-1.5 rounded text-xs transition-colors ${
                     selectedGroupId === 'all'
                       ? 'bg-muted text-foreground font-medium'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                   }`}
                 >
-                  <FolderOpen className="h-3 w-3" />
+                  <span className="relative">
+                    {proxyRunning && activeGroupId === null && (
+                      <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[8px] text-green-500" title="反代使用中">●</span>
+                    )}
+                    <FolderOpen className="h-3 w-3" />
+                  </span>
                   全部
                   <span className="ml-auto text-[10px] text-muted-foreground">
                     {data?.total || 0}
@@ -481,6 +566,7 @@ export function Dashboard(_props: DashboardProps) {
                       setSelectedGroupId(group.id)
                       setActiveTab('credentials')
                       setSelectedIds(new Set())
+                      setCurrentPage(1)
                     }}
                     onDoubleClick={() => {
                       if (group.id !== 'default') {
@@ -489,17 +575,19 @@ export function Dashboard(_props: DashboardProps) {
                         setEditGroupDialogOpen(true)
                       }
                     }}
-                    className={`w-full flex items-center gap-2 px-3 py-1.5 rounded text-xs transition-colors ${
+                    className={`w-full flex items-center gap-2 pl-4 pr-3 py-1.5 rounded text-xs transition-colors ${
                       selectedGroupId === group.id
                         ? 'bg-muted text-foreground font-medium'
                         : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                     }`}
                   >
-                    <FolderOpen className="h-3 w-3" />
+                    <span className="relative">
+                      {proxyRunning && activeGroupId === group.id && (
+                        <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[8px] text-green-500" title="反代使用中">●</span>
+                      )}
+                      <FolderOpen className="h-3 w-3" />
+                    </span>
                     {group.name}
-                    {activeGroupId === group.id && (
-                      <span className="text-[10px] text-green-500" title="反代使用中">●</span>
-                    )}
                     <span className="ml-auto text-[10px] text-muted-foreground">
                       {group.credentialCount}
                     </span>
@@ -517,10 +605,15 @@ export function Dashboard(_props: DashboardProps) {
               </div>
             )}
           </div>
-          
+           <NavItem
+            icon={<Settings2 className="h-4 w-4" />}
+            label="系统设置"
+            active={activeTab === 'system'}
+            onClick={() => setActiveTab('system')}
+          />
           <NavItem
-            icon={<Settings className="h-4 w-4" />}
-            label="反代配置"
+            icon={<Network className="h-4 w-4" />}
+            label="反代设置"
             active={activeTab === 'config'}
             onClick={() => setActiveTab('config')}
           />
@@ -530,6 +623,7 @@ export function Dashboard(_props: DashboardProps) {
             active={activeTab === 'logs'}
             onClick={() => setActiveTab('logs')}
           />
+         
         </nav>
         
         {/* 底部操作 */}
@@ -541,13 +635,12 @@ export function Dashboard(_props: DashboardProps) {
             {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             {darkMode ? '浅色模式' : '深色模式'}
           </button>
-          <button
-            onClick={() => setAboutDialogOpen(true)}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          >
-            <Info className="h-4 w-4" />
-            关于
-          </button>
+          <NavItem
+            icon={<Info className="h-4 w-4" />}
+            label="关于"
+            active={activeTab === 'about'}
+            onClick={() => setActiveTab('about')}
+          />
         </div>
       </aside>
 
@@ -557,8 +650,10 @@ export function Dashboard(_props: DashboardProps) {
         <header className="h-14 flex items-center justify-between px-6 border-b bg-background">
           <h1 className="text-lg font-semibold">
             {activeTab === 'credentials' && '凭证管理'}
-            {activeTab === 'config' && '反代配置'}
+            {activeTab === 'config' && '反代设置'}
             {activeTab === 'logs' && '运行日志'}
+            {activeTab === 'system' && '系统设置'}
+            {activeTab === 'about' && '关于'}
           </h1>
           <div className="flex items-center gap-2">
             {activeTab === 'credentials' && (
@@ -609,6 +704,7 @@ export function Dashboard(_props: DashboardProps) {
                           }
                           toast.success(`已禁用 ${ids.length} 个凭证`)
                           refetch()
+                          refreshGroups()
                         } catch (e: any) {
                           toast.error('禁用失败')
                         }
@@ -630,6 +726,7 @@ export function Dashboard(_props: DashboardProps) {
                           }
                           toast.success(`已启用 ${ids.length} 个凭证`)
                           refetch()
+                          refreshGroups()
                         } catch (e: any) {
                           toast.error('启用失败')
                         }
@@ -667,7 +764,7 @@ export function Dashboard(_props: DashboardProps) {
                 ) : (
                   <>
                     <Save className="h-4 w-4 mr-1" />
-                    保存配置
+                    保存设置
                   </>
                 )}
               </Button>
@@ -770,8 +867,7 @@ export function Dashboard(_props: DashboardProps) {
                         <th className="text-center px-4 py-3 font-medium">ID</th>
                         <th className="text-center px-4 py-3 font-medium">邮箱</th>
                         <th className="text-center px-4 py-3 font-medium">剩余额度</th>
-                        <th className="text-center px-4 py-3 font-medium">Token有效期</th>
-                        <th className="text-center px-4 py-3 font-medium">状态</th>
+                        <th className="text-center px-4 py-3 font-medium">状态/Token有效期</th>
                         <th className="text-center px-4 py-3 font-medium">操作</th>
                       </tr>
                     </thead>
@@ -787,18 +883,21 @@ export function Dashboard(_props: DashboardProps) {
                         if (pageData.length === 0) {
                           return (
                             <tr>
-                              <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                              <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                                 暂无凭证
                               </td>
                             </tr>
                           )
                         }
                         
-                        return pageData.map((cred) => (
+                        return pageData.map((cred) => {
+                          // 检查是否是本地客户端使用的凭证（通过 Refresh Token 匹配）
+                          const isLocalClientCred = data?.localRefreshToken && cred.refreshToken === data.localRefreshToken
+                          return (
                           <tr 
                             key={cred.id} 
-                            className={`transition-colors ${cred.id === data?.currentId 
-                              ? 'bg-green-500/10 hover:bg-green-500/20' 
+                            className={`transition-colors ${isLocalClientCred 
+                              ? 'bg-blue-500/10 hover:bg-blue-500/20' 
                               : 'hover:bg-muted/30'}`}
                           >
                             <td className="px-2 py-3 text-center">
@@ -843,47 +942,45 @@ export function Dashboard(_props: DashboardProps) {
                                 <span className="text-muted-foreground">-</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-center font-mono text-xs">
-                              {cred.disabled ? (
-                                <span className="text-muted-foreground">-</span>
-                              ) : cred.expiresAt ? (
-                                (() => {
-                                  const expires = new Date(cred.expiresAt)
-                                  const now = new Date()
-                                  const diffMs = expires.getTime() - now.getTime()
-                                  const diffMin = Math.floor(diffMs / 60000)
-                                  
-                                  if (diffMin < 0) {
-                                    return <span className="text-red-500">已过期</span>
-                                  } else if (diffMin < 10) {
-                                    return <span className="text-yellow-500">{diffMin}分钟</span>
-                                  } else if (diffMin < 60) {
-                                    return <span className="text-green-500">{diffMin}分钟</span>
-                                  } else {
-                                    const hours = Math.floor(diffMin / 60)
-                                    return <span className="text-green-600">{hours}小时</span>
-                                  }
-                                })()
-                              ) : (
-                                <span className="text-muted-foreground">未知</span>
-                              )}
-                            </td>
                             <td className="px-4 py-3 text-center">
-                              {(() => {
-                                // 基于后端 status 字段显示状态
-                                // disabled 单独处理（用户手动禁用）
-                                if (cred.disabled) {
-                                  return <Badge variant="secondary" className="text-xs">已禁用</Badge>
-                                }
-                                switch (cred.status) {
-                                  case 'invalid':
-                                    return <Badge variant="destructive" className="text-xs">无效</Badge>
-                                  case 'expired':
-                                    return <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-600">已过期</Badge>
-                                  default:
-                                    return <Badge variant="success" className="text-xs">正常</Badge>
-                                }
-                              })()}
+                              <div className="flex items-center justify-center gap-2">
+                                {/* 状态 Badge */}
+                                {(() => {
+                                  if (cred.disabled) {
+                                    return <Badge variant="secondary" className="text-xs">已禁用</Badge>
+                                  }
+                                  switch (cred.status) {
+                                    case 'invalid':
+                                      return <Badge variant="destructive" className="text-xs">无效</Badge>
+                                    case 'expired':
+                                      return <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-600">已过期</Badge>
+                                    default:
+                                      return <Badge variant="success" className="text-xs">正常</Badge>
+                                  }
+                                })()}
+                                {/* Token有效期 */}
+                                <span className="font-mono text-xs">
+                                  {cred.disabled ? null : cred.expiresAt ? (
+                                    (() => {
+                                      const expires = new Date(cred.expiresAt)
+                                      const now = new Date()
+                                      const diffMs = expires.getTime() - now.getTime()
+                                      const diffMin = Math.floor(diffMs / 60000)
+                                      
+                                      if (diffMin < 0) {
+                                        return null // 已过期由 Badge 显示
+                                      } else if (diffMin < 10) {
+                                        return <span className="text-yellow-500">{diffMin}分钟</span>
+                                      } else if (diffMin < 60) {
+                                        return <span className="text-green-500">{diffMin}分钟</span>
+                                      } else {
+                                        const hours = Math.floor(diffMin / 60)
+                                        return <span className="text-green-600">{hours}小时</span>
+                                      }
+                                    })()
+                                  ) : null}
+                                </span>
+                              </div>
                             </td>
                             <td className="px-4 py-3 text-center">
                               <div className="flex items-center justify-center gap-1">
@@ -938,115 +1035,94 @@ export function Dashboard(_props: DashboardProps) {
                               </div>
                             </td>
                           </tr>
-                        ))
+                        )})
                       })()}
                     </tbody>
                   </table>
                 </div>
                 
                 {/* 分页栏 - 固定在底部 */}
-                <div className="border-t px-4 py-3 flex items-center justify-between text-sm shrink-0">
-                  <div className="text-muted-foreground">
-                    显示第 {Math.min((currentPage - 1) * pageSize + 1, data?.total || 0)} 到 {Math.min(currentPage * pageSize, data?.total || 0)} 条，共 {data?.total || 0} 条
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">每页</span>
-                      <select 
-                        className="px-2 py-1 border rounded bg-background"
-                        value={pageSize}
-                        onChange={(e) => {
-                          setPageSize(Number(e.target.value))
-                          setCurrentPage(1)
-                          setSelectedIds(new Set())
-                        }}
-                      >
-                        <option value={10}>10</option>
-                        <option value={20}>20</option>
-                        <option value={50}>50</option>
-                        <option value={100}>100</option>
-                        <option value={200}>200</option>
-                      </select>
-                      <span className="text-muted-foreground">条</span>
+                {(() => {
+                  // 根据当前分组筛选凭证总数
+                  const filteredTotal = (data?.credentials || []).filter(c => 
+                    selectedGroupId === 'all' || c.groupId === selectedGroupId
+                  ).length
+                  const totalPages = Math.max(1, Math.ceil(filteredTotal / pageSize))
+                  
+                  return (
+                    <div className="border-t px-4 py-3 flex items-center justify-between text-sm shrink-0">
+                      <div className="text-muted-foreground">
+                        显示第 {Math.min((currentPage - 1) * pageSize + 1, filteredTotal)} 到 {Math.min(currentPage * pageSize, filteredTotal)} 条，共 {filteredTotal} 条
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-muted-foreground">每页</span>
+                          <select 
+                            className="px-2 py-1 border rounded bg-background"
+                            value={pageSize}
+                            onChange={(e) => {
+                              setPageSize(Number(e.target.value))
+                              setCurrentPage(1)
+                              setSelectedIds(new Set())
+                            }}
+                          >
+                            <option value={10}>10</option>
+                            <option value={20}>20</option>
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
+                            <option value={200}>200</option>
+                          </select>
+                          <span className="text-muted-foreground">条</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              setCurrentPage(p => Math.max(1, p - 1))
+                              setSelectedIds(new Set())
+                            }}
+                            disabled={currentPage <= 1}
+                            className="p-1 rounded hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </button>
+                          <span>{currentPage} / {totalPages}</span>
+                          <button
+                            onClick={() => {
+                              setCurrentPage(p => Math.min(totalPages, p + 1))
+                              setSelectedIds(new Set())
+                            }}
+                            disabled={currentPage >= totalPages}
+                            className="p-1 rounded hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          setCurrentPage(p => Math.max(1, p - 1))
-                          setSelectedIds(new Set())
-                        }}
-                        disabled={currentPage <= 1}
-                        className="p-1 rounded hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </button>
-                      <span>{currentPage} / {Math.max(1, Math.ceil((data?.total || 0) / pageSize))}</span>
-                      <button
-                        onClick={() => {
-                          setCurrentPage(p => Math.min(Math.ceil((data?.total || 0) / pageSize), p + 1))
-                          setSelectedIds(new Set())
-                        }}
-                        disabled={currentPage >= Math.ceil((data?.total || 0) / pageSize)}
-                        className="p-1 rounded hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                  )
+                })()}
               </Card>
             </div>
           )}
 
-          {/* 反代配置 */}
+          {/* 反代设置 */}
           {activeTab === 'config' && (
-            <div className="space-y-4 max-w-2xl">
+            <div className="space-y-4">
 
 
               <Card>
                 <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <Server className="h-4 w-4" />
+                  <div className="flex items-center justify-between gap-4">
+                    <CardTitle className="text-sm flex items-center gap-2 shrink-0">
+                      <Network className="h-4 w-4" />
                       反代服务
                     </CardTitle>
-                    {/* 启停开关 */}
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        {proxyRunning ? '运行中' : '已停止'}
-                      </span>
-                      <div 
-                        className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${
-                          proxyRunning ? 'bg-green-500' : 'bg-muted'
-                        }`}
-                        onClick={async () => {
-                          try {
-                            const { setProxyEnabled: setProxyEnabledApi } = await import('@/api/credentials')
-                            await setProxyEnabledApi(!proxyRunning)
-                            setProxyRunning(!proxyRunning)
-                            toast.success(proxyRunning ? '代理服务已停止' : '代理服务已启动')
-                          } catch (e: any) {
-                            toast.error(e.response?.data?.error?.message || '操作失败')
-                          }
-                        }}
-                      >
-                        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
-                          proxyRunning ? 'left-5' : 'left-0.5'
-                        }`} />
-                      </div>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {/* 使用分组 - 放在最前面 */}
-                    <div>
-                      <label className="text-xs text-muted-foreground mb-1 block">使用分组</label>
+                    {/* 使用分组 + 启停开关 */}
+                    <div className="flex items-center gap-3 flex-1 justify-end">
                       <select
-                        className="w-full px-3 py-2 bg-muted border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                        className="px-2 py-1 bg-muted border border-border rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary max-w-[150px]"
                         value={activeGroupId || 'all'}
                         onChange={async (e) => {
-                          // "all" 表示全部分组，传 null 给后端
                           const selectedValue = e.target.value
                           const apiValue = selectedValue === 'all' ? null : selectedValue
                           try {
@@ -1054,42 +1130,118 @@ export function Dashboard(_props: DashboardProps) {
                             await setActiveGroup(apiValue)
                             setActiveGroupId(apiValue)
                             toast.success(apiValue ? `已切换到分组 "${groups.find(g => g.id === apiValue)?.name}"` : '已切换到所有分组')
-                            // 刷新分组列表
                             const response = await getGroups()
                             setGroups(response.groups)
+                            // 切换分组后刷新凭证数据以显示最新的当前凭证
+                            refetch()
                           } catch (e: any) {
                             toast.error(e.response?.data?.error?.message || '切换失败')
                           }
                         }}
                       >
-                        <option value="all">全部分组</option>
+                        <option value="all">全部</option>
                         {groups.map(group => (
                           <option key={group.id} value={group.id}>
                             {group.name} ({group.credentialCount})
                           </option>
                         ))}
                       </select>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        选择反代服务使用的凭证分组，必须选择后才能启用服务
-                      </p>
+                      <span className="text-xs text-muted-foreground">
+                        {proxyRunning ? '运行中' : '已停止'}
+                      </span>
+                      <div 
+                        className={`w-10 h-5 rounded-full relative transition-colors ${
+                          proxyToggling ? 'opacity-50 cursor-wait' : 'cursor-pointer'
+                        } ${proxyRunning ? 'bg-primary' : 'bg-muted'}`}
+                        onClick={async () => {
+                          if (proxyToggling) return  // 防止重复点击
+                          setProxyToggling(true)
+                          try {
+                            const { setProxyEnabled: setProxyEnabledApi } = await import('@/api/credentials')
+                            await setProxyEnabledApi(!proxyRunning)
+                            setProxyRunning(!proxyRunning)
+                            // 开启反代后刷新凭证数据以显示最新的当前凭证
+                            if (!proxyRunning) {
+                              refetch()
+                            }
+                            toast.success(proxyRunning ? '代理服务已停止' : '代理服务已启动')
+                          } catch (e: any) {
+                            toast.error(e.response?.data?.error?.message || '操作失败')
+                          } finally {
+                            setProxyToggling(false)
+                          }
+                        }}
+                      >
+                        <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
+                          proxyToggling ? 'animate-pulse' : ''
+                        } ${proxyRunning ? 'left-5' : 'left-0.5'}`} />
+                      </div>
                     </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
                     
-                    {/* 其他配置 */}
+                    {/* 当前使用的凭证信息 */}
+                    <div className="p-3 bg-muted/50 rounded-lg border border-border">
+                      <div className="text-xs text-muted-foreground mb-2">当前使用凭证</div>
+                      {(() => {
+                        if (!proxyRunning) {
+                          return (
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                              <span>--</span>
+                              <span>--</span>
+                              <span>--</span>
+                            </div>
+                          )
+                        }
+                        const currentCred = data?.credentials?.find(c => c.id === data?.currentId)
+                        if (!currentCred) {
+                          return (
+                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                              <span>--</span>
+                              <span>--</span>
+                              <span>--</span>
+                            </div>
+                          )
+                        }
+                        return (
+                          <div className="flex items-center gap-4 text-sm">
+                            <span className="font-mono">#{currentCred.id}</span>
+                            <span>
+                              {currentCred.email 
+                                ? currentCred.email.replace(/(.{3}).*(@.*)/, '$1****$2')
+                                : <span className="text-muted-foreground">-</span>
+                              }
+                            </span>
+                            <span className={currentCred.remaining !== null 
+                              ? (currentCred.remaining < 1 ? 'text-red-500' : 'text-green-600')
+                              : 'text-muted-foreground'
+                            }>
+                              {currentCred.remaining !== null 
+                                ? `$${currentCred.remaining.toFixed(2)}`
+                                : '-'
+                              }
+                            </span>
+                          </div>
+                        )
+                      })()}
+                    </div>
                     <div className="grid gap-4 grid-cols-2">
                       <FormInput
                         label="监听地址"
                         value={configHost}
                         onChange={setConfigHost}
                         placeholder="127.0.0.1"
-                        disabled={configLoading}
+                        disabled={configLoading || proxyRunning}
                       />
                       <FormInput
                         label="监听端口"
-                        value={configPort}
-                        onChange={setConfigPort}
+                        value={proxyPort}
+                        onChange={setProxyPort}
                         type="number"
-                        placeholder="8990"
-                        disabled={configLoading}
+                        placeholder="8991"
+                        disabled={configLoading || proxyRunning}
                       />
                       <div className="col-span-2">
                         <FormInput
@@ -1097,7 +1249,7 @@ export function Dashboard(_props: DashboardProps) {
                           value={configApiKey}
                           onChange={setConfigApiKey}
                           placeholder="sk-..."
-                          disabled={configLoading}
+                          disabled={configLoading || proxyRunning}
                         />
                       </div>
                     </div>
@@ -1109,7 +1261,7 @@ export function Dashboard(_props: DashboardProps) {
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
-                    <Terminal className="h-4 w-4" />
+                    <Globe className="h-4 w-4" />
                     API 端点
                   </CardTitle>
                 </CardHeader>
@@ -1145,114 +1297,6 @@ export function Dashboard(_props: DashboardProps) {
                       </div>
                     </div>
 
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* 机器码管理 */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Settings className="h-4 w-4" />
-                    机器码管理
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="text-xs text-muted-foreground">
-                      机器码用于识别客户端设备，可备份后在其他设备恢复。
-                    </div>
-                    <div className="flex gap-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={async () => {
-                          try {
-                            const { backupMachineId } = await import('@/api/credentials')
-                            const result = await backupMachineId()
-                            toast.success(result.message)
-                            addLog('[System] 机器码已备份')
-                          } catch (e: any) {
-                            toast.error(e.response?.data?.error?.message || '备份失败')
-                          }
-                        }}
-                      >
-                        备份机器码
-                      </Button>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={async () => {
-                          try {
-                            const { restoreMachineId } = await import('@/api/credentials')
-                            const result = await restoreMachineId()
-                            toast.success(result.message)
-                            addLog('[System] 机器码已恢复')
-                          } catch (e: any) {
-                            toast.error(e.response?.data?.error?.message || '恢复失败')
-                          }
-                        }}
-                      >
-                        恢复机器码
-                      </Button>
-                      <Button 
-                        variant="destructive" 
-                        size="sm" 
-                        onClick={async () => {
-                          if (!confirm('确定要重置机器码吗？这将生成新的设备标识。')) return
-                          try {
-                            const { resetMachineId } = await import('@/api/credentials')
-                            const result = await resetMachineId()
-                            toast.success(result.message)
-                            addLog('[System] 机器码已重置')
-                          } catch (e: any) {
-                            toast.error(e.response?.data?.error?.message || '重置失败')
-                          }
-                        }}
-                      >
-                        重置机器码
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* 模型锁定 */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Settings className="h-4 w-4" />
-                    模型锁定（仅客户端）
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="text-xs text-muted-foreground">
-                      锁定后客户端操作将使用指定模型，不影响反代功能。
-                    </div>
-                    <div className="flex gap-2">
-                      <select 
-                        className="flex-1 px-3 py-2 bg-muted border border-border rounded-md text-sm"
-                        defaultValue=""
-                        onChange={async (e) => {
-                          try {
-                            const { setLockedModel } = await import('@/api/credentials')
-                            const model = e.target.value || null
-                            const result = await setLockedModel(model)
-                            toast.success(result.message)
-                            addLog(`[System] 模型锁定: ${model || '已取消'}`)
-                          } catch (err: any) {
-                            toast.error(err.response?.data?.error?.message || '设置失败')
-                          }
-                        }}
-                      >
-                        <option value="">不锁定</option>
-                        <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
-                        <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
-                        <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</option>
-                        <option value="claude-opus-4-20250514">Claude Opus 4</option>
-                      </select>
-                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -1318,6 +1362,238 @@ export function Dashboard(_props: DashboardProps) {
               </CardContent>
             </Card>
           )}
+
+          {/* 系统设置 */}
+          {activeTab === 'system' && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <RefreshCw className="h-4 w-4" />
+                    自动刷新设置
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs text-muted-foreground">定时刷新所有凭证的 Token，保持凭证有效</div>
+                    </div>
+                    <div
+                      onClick={async () => {
+                        const newValue = !autoRefreshEnabled
+                        setAutoRefreshEnabled(newValue)
+                        try {
+                          const { updateConfig } = await import('@/api/credentials')
+                          await updateConfig({ autoRefreshEnabled: newValue })
+                          toast.success(newValue ? '自动刷新已启用（重启后生效）' : '自动刷新已禁用')
+                        } catch (e: any) {
+                          toast.error('保存失败')
+                        }
+                      }}
+                      className={`w-10 h-5 rounded-full relative cursor-pointer transition-colors ${
+                        autoRefreshEnabled ? 'bg-primary' : 'bg-muted'
+                      }`}
+                    >
+                      <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${
+                        autoRefreshEnabled ? 'left-5' : 'left-0.5'
+                      }`} />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">刷新间隔</label>
+                    <select
+                      value={autoRefreshInterval}
+                      onChange={async (e) => {
+                        const newValue = Number(e.target.value)
+                        setAutoRefreshInterval(newValue)
+                        try {
+                          const { updateConfig } = await import('@/api/credentials')
+                          await updateConfig({ autoRefreshIntervalMinutes: newValue })
+                          toast.success(`刷新间隔已设为 ${newValue} 分钟（重启后生效）`)
+                        } catch (e: any) {
+                          toast.error('保存失败')
+                        }
+                      }}
+                      disabled={!autoRefreshEnabled}
+                      className="w-full px-3 py-2 bg-muted border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+                    >
+                      <option value={5}>5 分钟</option>
+                      <option value={10}>10 分钟</option>
+                      <option value={20}>20 分钟</option>
+                      <option value={30}>30 分钟</option>
+                    </select>
+                    <div className="text-[10px] text-muted-foreground">修改后需要重启应用生效</div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Ghost className="h-4 w-4" />
+                    模型锁定
+                    {lockedModel && <span className="text-xs text-green-500 ml-1">锁定中</span>}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex gap-2">
+                    <select
+                      className="flex-1 px-3 py-2 bg-muted border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+                      value={selectedModel || 'claude-opus-4.5'}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                      disabled={!!lockedModel}
+                    >
+                      <option value="claude-opus-4.5">Claude Opus 4.5</option>
+                      <option value="claude-sonnet-4.5">Claude Sonnet 4.5</option>
+                      <option value="claude-haiku-4.5">Claude Haiku 4.5</option>
+                      <option value="claude-sonnet-4">Claude Sonnet 4</option>
+                    </select>
+                    {lockedModel ? (
+                      <Button 
+                        variant="destructive" 
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            const { setLockedModel: setLockedModelApi } = await import('@/api/credentials')
+                            await setLockedModelApi(null)
+                            setLockedModel('')
+                            setSelectedModel('claude-opus-4.5') // 恢复默认值
+                            toast.success('模型锁定已取消')
+                          } catch (err: any) {
+                            toast.error(err.response?.data?.error?.message || '取消失败')
+                          }
+                        }}
+                      >
+                        取消锁定
+                      </Button>
+                    ) : (
+                      <Button 
+                        size="sm"
+                        onClick={async () => {
+                          const model = selectedModel || 'claude-opus-4.5'
+                          try {
+                            const { setLockedModel: setLockedModelApi } = await import('@/api/credentials')
+                            await setLockedModelApi(model)
+                            setLockedModel(model)
+                            toast.success(`模型已锁定: ${model}`)
+                          } catch (err: any) {
+                            toast.error(err.response?.data?.error?.message || '锁定失败')
+                          }
+                        }}
+                      >
+                        锁定
+                      </Button>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    锁定后反代服务将使用指定模型，忽略客户端指定的模型
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <QrCode className="h-4 w-4" />
+                    机器码管理
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {/* 当前机器码 */}
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">当前机器码</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={currentMachineId}
+                        className="flex-1 px-3 py-2 bg-muted border border-border rounded-md text-xs font-mono"
+                        placeholder="加载中..."
+                      />
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={async () => {
+                          if (currentMachineId) {
+                            await navigator.clipboard.writeText(currentMachineId)
+                            toast.success('已复制到剪贴板')
+                          }
+                        }}
+                      >
+                        复制
+                      </Button>
+                    </div>
+                  </div>
+                  {/* 备份机器码 */}
+                  {backupMachineId && (
+                    <div className="text-xs text-muted-foreground font-mono">
+                      备份机器码：{backupMachineId.machineId}    {backupMachineId.backupTime}
+                    </div>
+                  )}
+                  <div className="text-xs text-muted-foreground">
+                    机器码用于识别客户端设备，可备份后在其他设备恢复。
+                  </div>
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={async () => {
+                        try {
+                          const { backupMachineId: backupApi, getMachineId } = await import('@/api/credentials')
+                          const result = await backupApi()
+                          toast.success(result.message)
+                          // 刷新备份显示
+                          const machineIdRes = await getMachineId()
+                          setBackupMachineId(machineIdRes.machineIdBackup || null)
+                        } catch (e: any) {
+                          toast.error(e.response?.data?.error?.message || '备份失败')
+                        }
+                      }}
+                    >
+                      备份机器码
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={async () => {
+                        try {
+                          const { restoreMachineId } = await import('@/api/credentials')
+                          const result = await restoreMachineId()
+                          toast.success(result.message)
+                        } catch (e: any) {
+                          toast.error(e.response?.data?.error?.message || '恢复失败')
+                        }
+                      }}
+                    >
+                      恢复机器码
+                    </Button>
+                    <Button 
+                      variant="destructive" 
+                      size="sm" 
+                      onClick={async () => {
+                        if (!confirm('确定要重置机器码吗？这将生成新的设备标识。')) return
+                        try {
+                          const { resetMachineId } = await import('@/api/credentials')
+                          const result = await resetMachineId()
+                          toast.success(result.message)
+                        } catch (e: any) {
+                          toast.error(e.response?.data?.error?.message || '重置失败')
+                        }
+                      }}
+                    >
+                      重置机器码
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* 关于 */}
+          {activeTab === 'about' && (
+            <AboutSection />
+          )}
         </div>
       </main>
 
@@ -1338,11 +1614,8 @@ export function Dashboard(_props: DashboardProps) {
           setIsImporting(false)
           setImportProgress({ current: 0, total: 0 })
           refetch()
+          refreshGroups()
         }}
-      />
-      <AboutDialog
-        open={aboutDialogOpen}
-        onOpenChange={setAboutDialogOpen}
       />
       <ExportDialog
         open={exportDialogOpen}
@@ -1371,6 +1644,19 @@ export function Dashboard(_props: DashboardProps) {
         confirmText="删除"
         variant="destructive"
       />
+
+      {/* 更新弹窗 */}
+      {updateInfo && (
+        <UpdateDialog
+          open={updateDialogOpen}
+          onOpenChange={setUpdateDialogOpen}
+          currentVersion={updateInfo.currentVersion}
+          latestVersion={updateInfo.latestVersion}
+          releaseUrl={updateInfo.releaseUrl}
+          releaseBody={updateInfo.releaseBody}
+          publishedAt={updateInfo.publishedAt}
+        />
+      )}
 
       {/* 全局进度遮罩 */}
       {isRefreshing && refreshProgress.total > 0 && (
@@ -1521,10 +1807,7 @@ export function Dashboard(_props: DashboardProps) {
                     setMoveToGroupId('default')
                     setSelectedIds(new Set())
                     refetch()
-                    // 刷新分组列表
-                    const { getGroups } = await import('@/api/credentials')
-                    const response = await getGroups()
-                    setGroups(response.groups)
+                    refreshGroups()
                   } catch (e) {
                     toast.error('转移失败')
                   }

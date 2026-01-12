@@ -18,6 +18,7 @@ use super::types::AdminErrorResponse;
 use crate::common::auth;
 use crate::model::config::Config;
 use crate::kiro::token_manager::MultiTokenManager;
+use crate::kiro_server::{AdminContext, ProxyServerController};
 
 /// 反代服务控制器
 #[derive(Clone)]
@@ -80,8 +81,12 @@ pub struct AdminState {
     pub token_manager: Arc<MultiTokenManager>,
     /// 代理服务是否启用（用户设置的期望状态）
     pub proxy_enabled: Arc<AtomicBool>,
-    /// 代理服务控制器
+    /// 代理服务控制器（旧版，单端口模式）
     pub proxy_controller: ProxyController,
+    /// Admin 上下文（双端口模式）
+    pub admin_context: Option<Arc<AdminContext>>,
+    /// 反代服务器控制器（双端口模式）
+    pub proxy_server_controller: Option<Arc<tokio::sync::Mutex<ProxyServerController>>>,
 }
 
 impl AdminState {
@@ -98,6 +103,8 @@ impl AdminState {
             token_manager,
             proxy_enabled: Arc::new(AtomicBool::new(true)), // 默认启用
             proxy_controller: ProxyController::new(),
+            admin_context: None,
+            proxy_server_controller: None,
         }
     }
     

@@ -153,7 +153,7 @@ async fn refresh_social_token(
 
     let refresh_url = format!("https://prod.{}.auth.desktop.kiro.dev/refreshToken", region);
     let refresh_domain = format!("prod.{}.auth.desktop.kiro.dev", region);
-    let machine_id = machine_id::generate_from_credentials(credentials, config)
+    let machine_id = machine_id::generate_from_credentials(credentials)
         .ok_or_else(|| anyhow::anyhow!("无法生成 machineId"))?;
     let kiro_version = &config.kiro_version;
 
@@ -302,7 +302,7 @@ pub(crate) async fn get_usage_limits(
 
     let region = &config.region;
     let host = format!("q.{}.amazonaws.com", region);
-    let machine_id = machine_id::generate_from_credentials(credentials, config)
+    let machine_id = machine_id::generate_from_credentials(credentials)
         .ok_or_else(|| anyhow::anyhow!("无法生成 machineId"))?;
     let kiro_version = &config.kiro_version;
 
@@ -452,6 +452,8 @@ pub struct MultiTokenManager {
     credentials_path: Option<PathBuf>,
     /// 是否为多凭证格式（数组格式才回写）
     is_multiple_format: bool,
+    /// 活跃分组 ID（反代使用，None 表示使用所有分组）
+    active_group_id: Mutex<Option<String>>,
 }
 
 /// 每个凭证最大 API 调用失败次数
@@ -538,6 +540,7 @@ impl MultiTokenManager {
             refresh_lock: TokioMutex::new(()),
             credentials_path,
             is_multiple_format,
+            active_group_id: Mutex::new(None),
         };
 
         // 如果有新分配的 ID，立即持久化到配置文件
@@ -576,6 +579,77 @@ impl MultiTokenManager {
     /// 获取可用凭证数量
     pub fn available_count(&self) -> usize {
         self.entries.lock().iter().filter(|e| !e.disabled).count()
+    }
+
+    /// 设置活跃分组（反代使用）
+    pub fn set_active_group(&self, group_id: Option<String>) {
+        {
+            let mut active = self.active_group_id.lock();
+            *active = group_id;
+        }
+        // 切换分组后重新选择凭证（锁已释放）
+        self.select_highest_priority_in_group();
+    }
+
+    /// 获取当前活跃分组
+    pub fn get_active_group(&self) -> Option<String> {
+        self.active_group_id.lock().clone()
+    }
+
+    /// 刷新凭证选择（重新选择当前分组内优先级最高的凭证）
+    pub fn refresh_credential_selection(&self) {
+        self.select_highest_priority_in_group();
+    }
+
+    /// 检查凭证是否在活跃分组内
+    fn is_in_active_group(&self, credentials: &KiroCredentials) -> bool {
+        let active_group = self.active_group_id.lock();
+        match active_group.as_ref() {
+            None => true, // 无分组限制，所有凭证可用
+            Some(group_id) => &credentials.group_id == group_id,
+        }
+    }
+
+    /// 选择活跃分组内优先级最高的凭证
+    fn select_highest_priority_in_group(&self) {
+        let entries = self.entries.lock();
+        let mut current_id = self.current_id.lock();
+        let active_group = self.active_group_id.lock();
+
+        // 选择活跃分组内优先级最高的未禁用凭证
+        let best = entries
+            .iter()
+            .filter(|e| {
+                if e.disabled {
+                    return false;
+                }
+                match active_group.as_ref() {
+                    None => true,
+                    Some(group_id) => &e.credentials.group_id == group_id,
+                }
+            })
+            .min_by_key(|e| e.credentials.priority);
+
+        match best {
+            Some(entry) => {
+                if entry.id != *current_id {
+                    tracing::info!(
+                        "分组切换后选择凭证: #{} -> #{}（优先级 {}）",
+                        *current_id,
+                        entry.id,
+                        entry.credentials.priority
+                    );
+                    *current_id = entry.id;
+                } else {
+                    tracing::info!("分组内当前凭证有效: #{}", entry.id);
+                }
+            }
+            None => {
+                // 分组内没有可用凭证，将 current_id 设为 0
+                tracing::warn!("活跃分组内没有可用凭证，current_id 设为 0");
+                *current_id = 0;
+            }
+        }
     }
 
     /// 获取用于导出的凭证数据
@@ -619,20 +693,32 @@ impl MultiTokenManager {
             let (id, credentials) = {
                 let entries = self.entries.lock();
                 let current_id = *self.current_id.lock();
+                let active_group = self.active_group_id.lock();
 
-                // 找到当前凭证
-                if let Some(entry) = entries.iter().find(|e| e.id == current_id && !e.disabled) {
+                // 分组过滤闭包
+                let in_group = |cred: &KiroCredentials| -> bool {
+                    match active_group.as_ref() {
+                        None => true,
+                        Some(group_id) => &cred.group_id == group_id,
+                    }
+                };
+
+                // 找到当前凭证（需要在分组内）
+                if let Some(entry) = entries.iter().find(|e| {
+                    e.id == current_id && !e.disabled && in_group(&e.credentials)
+                }) {
                     (entry.id, entry.credentials.clone())
                 } else {
-                    // 当前凭证不可用，选择优先级最高的可用凭证
+                    // 当前凭证不可用，选择分组内优先级最高的可用凭证
                     if let Some(entry) = entries
                         .iter()
-                        .filter(|e| !e.disabled)
+                        .filter(|e| !e.disabled && in_group(&e.credentials))
                         .min_by_key(|e| e.credentials.priority)
                     {
                         // 先提取数据
                         let new_id = entry.id;
                         let new_creds = entry.credentials.clone();
+                        drop(active_group);
                         drop(entries);
                         // 更新 current_id
                         let mut current_id = self.current_id.lock();
@@ -643,7 +729,11 @@ impl MultiTokenManager {
                         // 因为 available_count() 会尝试获取 entries 锁，
                         // 而此时我们已经持有该锁，会导致死锁
                         let available = entries.iter().filter(|e| !e.disabled).count();
-                        anyhow::bail!("所有凭证均已禁用（{}/{}）", available, total);
+                        let group_info = match active_group.as_ref() {
+                            Some(g) => format!("分组 '{}' 内", g),
+                            None => "全部".to_string(),
+                        };
+                        anyhow::bail!("{}凭证均已禁用或无可用凭证（{}/{}）", group_info, available, total);
                     }
                 }
             };
@@ -946,6 +1036,69 @@ impl MultiTokenManager {
         .await
     }
 
+    /// 刷新所有凭证的 Token
+    /// 
+    /// 返回成功刷新的凭证数量（10 并发）
+    pub async fn refresh_all_credentials(&self) -> anyhow::Result<usize> {
+        use futures::stream::{self, StreamExt};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        
+        let credentials_to_refresh: Vec<(u64, KiroCredentials)> = {
+            let entries = self.entries.lock();
+            entries
+                .iter()
+                .filter(|e| !e.disabled)
+                .map(|e| (e.id, e.credentials.clone()))
+                .collect()
+        };
+
+        if credentials_to_refresh.is_empty() {
+            return Ok(0);
+        }
+
+        let refreshed_count = Arc::new(AtomicUsize::new(0));
+        let config = self.config.clone();
+        let proxy = self.proxy.clone();
+        let entries_ref = &self.entries;
+        
+        // 10 并发刷新
+        stream::iter(credentials_to_refresh)
+            .for_each_concurrent(10, |(id, credentials)| {
+                let config = config.clone();
+                let proxy = proxy.clone();
+                let refreshed_count = refreshed_count.clone();
+                
+                async move {
+                    match refresh_token(&credentials, &config, proxy.as_ref()).await {
+                        Ok(new_creds) => {
+                            let mut entries = entries_ref.lock();
+                            if let Some(entry) = entries.iter_mut().find(|e| e.id == id) {
+                                entry.credentials = new_creds;
+                                refreshed_count.fetch_add(1, Ordering::SeqCst);
+                                tracing::debug!("凭证 #{} Token 已刷新", id);
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("凭证 #{} Token 刷新失败: {}", id, e);
+                        }
+                    }
+                }
+            })
+            .await;
+
+        let count = refreshed_count.load(Ordering::SeqCst);
+        
+        // 持久化凭证
+        if count > 0 {
+            if let Err(e) = self.persist_credentials() {
+                tracing::warn!("刷新后持久化失败: {}", e);
+            }
+        }
+
+        Ok(count)
+    }
+
     // ========================================================================
     // Admin API 方法
     // ========================================================================
@@ -1224,10 +1377,17 @@ impl MultiTokenManager {
         let mut validated_cred =
             refresh_token(&new_cred, &self.config, self.proxy.as_ref()).await?;
 
-        // 4. 分配新 ID
+
+        // 4. 分配新 ID（找最小可用 ID，从 1 开始，复用已删除的 ID）
         let new_id = {
             let entries = self.entries.lock();
-            entries.iter().map(|e| e.id).max().unwrap_or(0) + 1
+            let used_ids: std::collections::HashSet<u64> = entries.iter().map(|e| e.id).collect();
+            // 从 1 开始找第一个未使用的 ID
+            let mut id = 1u64;
+            while used_ids.contains(&id) {
+                id += 1;
+            }
+            id
         };
 
         // 5. 设置 ID 并保留用户输入的元数据

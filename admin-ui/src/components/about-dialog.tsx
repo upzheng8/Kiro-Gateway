@@ -48,7 +48,6 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
         <div className="space-y-6 py-4">
           {/* Logo 和版本 */}
           <div className="text-center space-y-2">
-            <div className="text-4xl">🚀</div>
             <div className="text-xl font-bold">Kiro Gateway</div>
             <div className="text-sm text-muted-foreground">v{version}</div>
           </div>

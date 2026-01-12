@@ -1,6 +1,6 @@
 {
   "productName": "kiro-gateway",
-  "version": "1.0.2",
+  "version": "1.0.0",
   "identifier": "com.kiro.gateway",
   "build": {
     "frontendDist": "../admin-ui/dist",
