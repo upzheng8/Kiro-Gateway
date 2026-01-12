@@ -70,7 +70,10 @@ jobs:
 
       # 安装 Tauri CLI 和 核心插件依赖
       - name: Install dependencies
-        run: npm install
+        run: |
+          npm install
+          npm install @tauri-apps/cli@latest --save-dev
+          rm -f src-tauri/Cargo.lock
 
       # 这一步是最关键的，构建应用
       - name: Build Tauri app
