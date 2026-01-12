@@ -9,7 +9,6 @@
     "core:resources:default",
     "core:menu:default",
     "core:tray:default",
-    "path:default",
     "fs:default",
     "dialog:default",
     "shell:allow-open"
