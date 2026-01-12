@@ -78,6 +78,7 @@ jobs:
         run: npm install
 
       - name: Clean build artifacts
+        shell: bash
         run: |
           rm -rf src-tauri/target || true
           rm -rf ~/.cargo/registry/cache || true
