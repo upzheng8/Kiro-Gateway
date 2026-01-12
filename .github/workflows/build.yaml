@@ -77,6 +77,10 @@ jobs:
       - name: Install tauri-cli
         run: npm install
 
+      - name: Clean Cargo cache
+        working-directory: src-tauri
+        run: cargo clean
+
       - name: Build Tauri app
         run: npx tauri build ${{ matrix.args }} --bundles ${{ matrix.bundles }}
 
