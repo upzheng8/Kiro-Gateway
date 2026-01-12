@@ -75,10 +75,6 @@ jobs:
           npm install
           npm install @tauri-apps/cli@latest --save-dev
 
-          # 删除锁文件，强制重新解析依赖
-          echo "Deleting Cargo.lock to force update..."
-          rm -f src-tauri/Cargo.lock
-
       # 这一步是最关键的，构建应用
       - name: Build Tauri app
         run: npx tauri build ${{ matrix.args }} --bundles ${{ matrix.bundles }}

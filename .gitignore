@@ -18,7 +18,7 @@ src-tauri/target
 /AGENTS.md
 
 # Rust
-src-tauri/Cargo.lock
+# Cargo.lock is committed to ensure consistent dependency versions
 
 # Node.js
 node_modules/
