@@ -65,7 +65,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
-          prefix-key: "v1"
+          prefix-key: "v2"
 
       # 安装前端依赖
       - name: Install dependencies

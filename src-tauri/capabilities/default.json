@@ -1,8 +1,0 @@
-{
-  "identifier": "default",
-  "description": "Default permissions for the application",
-  "windows": ["*"],
-  "permissions": [
-    "shell:allow-open"
-  ]
-}
