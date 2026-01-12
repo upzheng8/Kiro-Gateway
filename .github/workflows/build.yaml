@@ -60,11 +60,12 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      # Rust 缓存加速
+      # Rust 缓存加速 - 添加前缀强制刷新缓存
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
+          prefix-key: "v1"
 
       # 安装前端依赖
       - name: Install dependencies
