@@ -3,10 +3,15 @@
   "description": "Capability for the main window",
   "windows": ["main"],
   "permissions": [
-    "core:default",
-    "shell:allow-open",
-    "dialog:allow-save",
+    "core:path:default",
+    "core:event:default",
+    "core:window:default",
+    "core:app:default",
+    "core:resources:default",
+    "core:menu:default",
+    "core:tray:default",
     "fs:default",
-    "fs:allow-write-text-file"
+    "dialog:default",
+    "shell:allow-open"
   ]
 }
