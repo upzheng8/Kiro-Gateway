@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { RefreshCw, Moon, Sun, Server, Plus, Terminal, Save, Trash2, ToggleLeft, ToggleRight, Ghost, Eye, Info, Download, ChevronLeft, ChevronRight, ChevronDown, FolderOpen, FolderInput, Key, Network, QrCode, Settings2, Globe } from 'lucide-react'
+import { RefreshCw, Moon, Sun, Server, Plus, Terminal, Save, Trash2, ToggleLeft, ToggleRight, Ghost, Eye, Info, Download, ChevronLeft, ChevronRight, ChevronDown, FolderOpen, FolderInput, Key, Network, QrCode, Settings2, Globe, ShoppingCart } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -623,8 +623,21 @@ export function Dashboard(_props: DashboardProps) {
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* 顶栏 */}
         <header className="h-14 flex items-center justify-between px-6 border-b bg-background">
-          <h1 className="text-lg font-semibold">
-            {activeTab === 'credentials' && '凭证管理'}
+          <h1 className="text-lg font-semibold flex items-center gap-2">
+            {activeTab === 'credentials' && (
+              <>
+                凭证管理
+                <a
+                  href="https://pay.ldxp.cn/shop/V6VSA2G8"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-1 hover:bg-muted rounded-md transition-colors"
+                  title="购买账号"
+                >
+                  <ShoppingCart className="h-4 w-4 text-orange-500" />
+                </a>
+              </>
+            )}
             {activeTab === 'config' && '反代设置'}
             {activeTab === 'logs' && '运行日志'}
             {activeTab === 'system' && '系统设置'}
