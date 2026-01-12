@@ -18,7 +18,7 @@ src-tauri/target
 /AGENTS.md
 
 # Rust
-Cargo.lock
+# Cargo.lock is committed for reproducible builds
 
 # Node.js
 node_modules/
