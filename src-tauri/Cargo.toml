@@ -43,14 +43,14 @@ winreg = "0.55"       # Windows 注册表访问
 crossbeam-channel = "0.5" # For thread communication
 
 # Tauri Dependencies
-tauri = { version = "2.0.0", features = [] }
-tauri-plugin-shell = "2.0.0"
-tauri-plugin-dialog = "2.0.0"
-tauri-plugin-fs = "2.0.0"
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
 
 
 [build-dependencies]
-tauri-build = { version = "2.0.0", features = [] }
+tauri-build = { version = "2", features = [] }
 
 [features]
 # this feature is used for production builds or when devPath points to the filesystem

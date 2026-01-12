@@ -69,12 +69,20 @@ jobs:
           targets: ${{ matrix.target }}
 
       # 安装 Tauri CLI 和 核心插件依赖
-      - name: Install dependencies
+      - name: Install and Update dependencies
         shell: bash
         run: |
           npm install
           npm install @tauri-apps/cli@latest --save-dev
-          rm -f src-tauri/Cargo.lock
+
+          # 进入 tauri 目录
+          cd src-tauri
+
+          # 强制更新所有 Rust 依赖到最新兼容版本
+          cargo update
+
+          # 回到根目录准备编译
+          cd ..
 
       # 这一步是最关键的，构建应用
       - name: Build Tauri app
