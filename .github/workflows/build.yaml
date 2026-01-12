@@ -62,7 +62,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "src-tauri -> target"
-          shared-key: "rust-cache-${{ matrix.target }}"
+          shared-key: "tauri-v2-stable-${{ matrix.target }}"
           cache-on-failure: true
 
       - name: Install Tauri CLI
