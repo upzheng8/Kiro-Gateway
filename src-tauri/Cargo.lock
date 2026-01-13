@@ -2098,9 +2098,9 @@ dependencies = [
 
 [[package]]
 name = "muda"
-version = "0.17.1"
+version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01c1738382f66ed56b3b9c8119e794a2e23148ac8ea214eda86622d4cb9d415a"
+checksum = "4de14a9b5d569ca68d7c891d613b390cf5ab4f851c77aaa2f9e435555d3d9492"
 dependencies = [
  "crossbeam-channel",
  "dpi",
@@ -2114,7 +2114,7 @@ dependencies = [
  "png",
  "serde",
  "thiserror 2.0.17",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3475,9 +3475,9 @@ dependencies = [
 
 [[package]]
 name = "serialize-to-javascript"
-version = "0.1.2"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04f3666a07a197cdb77cdf306c32be9b7f598d7060d50cfd4d5aa04bfd92f6c5"
+checksum = "c9823f2d3b6a81d98228151fdeaf848206a7855a7a042bbf9bf870449a66cafb"
 dependencies = [
  "serde",
  "serde_json",
@@ -3486,13 +3486,13 @@ dependencies = [
 
 [[package]]
 name = "serialize-to-javascript-impl"
-version = "0.1.2"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "772ee033c0916d670af7860b6e1ef7d658a4629a6d0b4c8c3e67f09b3765b75d"
+checksum = "74064874e9f6a15f04c1f3cb627902d0e6b410abbf36668afa873c61889f1763"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.114",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -3850,17 +3850,17 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 
 [[package]]
 name = "tauri"
-version = "2.9.5"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a3868da5508446a7cd08956d523ac3edf0a8bc20bf7e4038f9a95c2800d2033"
+checksum = "be03adf68fba02f87c4653da7bd73f40b0ecf9c6b7c2c39830f6981d0651912f"
 dependencies = [
  "anyhow",
  "bytes",
- "cookie",
  "dirs 6.0.0",
  "dunce",
  "embed_plist",
- "getrandom 0.3.4",
+ "futures-util",
+ "getrandom 0.2.17",
  "glob",
  "gtk",
  "heck 0.5.0",
@@ -3874,7 +3874,6 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "objc2-ui-kit",
- "objc2-web-kit",
  "percent-encoding",
  "plist",
  "raw-window-handle",
@@ -3893,8 +3892,9 @@ dependencies = [
  "tokio",
  "tray-icon",
  "url",
+ "urlpattern",
  "webkit2gtk",
- "webview2-com",
+ "webview2-com 0.37.0",
  "window-vibrancy",
  "windows",
 ]
@@ -3981,9 +3981,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-shell"
-version = "2.3.4"
+version = "2.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39b76f884a3937e04b631ffdc3be506088fa979369d25147361352f2f352e5ed"
+checksum = "d34e525a448b80ad5d906fcbd93838ac3ba37985b29ac699a045b5da9b0a1a22"
 dependencies = [
  "encoding_rs",
  "log",
@@ -4021,7 +4021,7 @@ dependencies = [
  "thiserror 2.0.17",
  "url",
  "webkit2gtk",
- "webview2-com",
+ "webview2-com 0.38.2",
  "windows",
 ]
 
@@ -4047,7 +4047,7 @@ dependencies = [
  "tauri-utils",
  "url",
  "webkit2gtk",
- "webview2-com",
+ "webview2-com 0.38.2",
  "windows",
  "wry",
 ]
@@ -4482,9 +4482,9 @@ dependencies = [
 
 [[package]]
 name = "tray-icon"
-version = "0.21.3"
+version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5e85aa143ceb072062fc4d6356c1b520a51d636e7bc8e77ec94be3608e5e80c"
+checksum = "9f7eee98ec5c90daf179d55c20a49d8c0d043054ce7c26336c09a24d31f14fa0"
 dependencies = [
  "crossbeam-channel",
  "dirs 6.0.0",
@@ -4499,7 +4499,7 @@ dependencies = [
  "png",
  "serde",
  "thiserror 2.0.17",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4853,12 +4853,26 @@ dependencies = [
 
 [[package]]
 name = "webview2-com"
+version = "0.37.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b542b5cfbd9618c46c2784e4d41ba218c336ac70d44c55e47b251033e7d85601"
+dependencies = [
+ "webview2-com-macros",
+ "webview2-com-sys 0.37.0",
+ "windows",
+ "windows-core 0.61.2",
+ "windows-implement",
+ "windows-interface",
+]
+
+[[package]]
+name = "webview2-com"
 version = "0.38.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7130243a7a5b33c54a444e54842e6a9e133de08b5ad7b5861cd8ed9a6a5bc96a"
 dependencies = [
  "webview2-com-macros",
- "webview2-com-sys",
+ "webview2-com-sys 0.38.2",
  "windows",
  "windows-core 0.61.2",
  "windows-implement",
@@ -4874,6 +4888,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.114",
+]
+
+[[package]]
+name = "webview2-com-sys"
+version = "0.37.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ae2d11c4a686e4409659d7891791254cf9286d3cfe0eef54df1523533d22295"
+dependencies = [
+ "thiserror 2.0.17",
+ "windows",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -5476,7 +5501,7 @@ dependencies = [
  "url",
  "webkit2gtk",
  "webkit2gtk-sys",
- "webview2-com",
+ "webview2-com 0.38.2",
  "windows",
  "windows-core 0.61.2",
  "windows-version",
