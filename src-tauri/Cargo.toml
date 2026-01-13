@@ -48,7 +48,7 @@ tauri-plugin-shell = "2"
 
 
 [build-dependencies]
-tauri-build = { version = "2.5", features = [] }
+tauri-build = { version = "=2.5.0", features = [] }
 
 [features]
 # this feature is used for production builds or when devPath points to the filesystem
