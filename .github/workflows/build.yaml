@@ -41,7 +41,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Tauri v2 Linux 必须依赖 (已修正)
+      # 清理磁盘空间 (Linux/macOS)
+      - name: Free disk space (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h
+
+      - name: Free disk space (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          sudo rm -rf ~/Library/Caches/*
+          sudo rm -rf /Users/runner/Library/Android
+          df -h
+
+      # Tauri v2 Linux 必须依赖
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -58,23 +76,33 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          # 只有 macOS 需要安装交叉编译 targets，Linux/Windows 使用 host target 即可
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      # Rust 缓存加速 - 使用平台和 target 组合的 key
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: "./src-tauri -> target"
-          prefix-key: "v6-${{ matrix.platform }}-${{ matrix.target }}"
+      # 暂时禁用 Rust 缓存以排除缓存问题
+      # - name: Rust cache
+      #   uses: swatinem/rust-cache@v2
+      #   with:
+      #     workspaces: "./src-tauri -> target"
+      #     prefix-key: "v7-${{ matrix.platform }}-${{ matrix.target }}"
 
       # 安装前端依赖
       - name: Install dependencies
         run: npm ci
 
-      # 预取 Rust 依赖（解决跨平台编译时的缓存问题）
-      - name: Fetch Rust dependencies
-        run: cargo fetch
+      # 删除 Cargo.lock 并重新生成，确保跨平台依赖一致
+      - name: Regenerate Cargo.lock
+        run: |
+          rm -f Cargo.lock
+          cargo generate-lockfile
+        working-directory: ./src-tauri
+
+      # 显示依赖版本用于调试
+      - name: Show tauri versions
+        run: |
+          echo "=== Cargo.lock tauri versions ==="
+          grep -A1 'name = "tauri"' Cargo.lock || true
+          grep -A1 'name = "tauri-build"' Cargo.lock || true
+          grep -A1 'name = "tauri-utils"' Cargo.lock || true
         working-directory: ./src-tauri
 
       # 使用官方 tauri-action 构建
