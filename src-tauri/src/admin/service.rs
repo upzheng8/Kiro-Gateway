@@ -110,17 +110,35 @@ impl AdminService {
         
         // 然后刷新 Token
         if let Err(e) = self.token_manager.refresh_token_for(id).await {
-            // 刷新失败，更新状态为 invalid
-            let _ = self.token_manager.update_status(id, "invalid");
-            return Err(self.classify_error(e, id));
+            // 刷新失败，标记凭证为暂停/无效
+            let _ = self.token_manager.mark_as_suspended(id);
+            
+            // 如果当前凭证是被刷新的凭证，尝试切换到下一个
+            if self.token_manager.current_id() == id {
+                let _ = self.token_manager.switch_to_next();
+            }
+            
+            return Err(self.classify_balance_error(e, id));
         }
         
         // 最后获取余额（会自动更新缓存）
-        let usage = self
+        let usage = match self
             .token_manager
             .get_usage_limits_for(id)
-            .await
-            .map_err(|e| self.classify_balance_error(e, id))?;
+            .await {
+            Ok(u) => u,
+            Err(e) => {
+                // 获取余额失败，标记凭证为暂停/无效并切换
+                let _ = self.token_manager.mark_as_suspended(id);
+                
+                // 如果当前凭证是被刷新的凭证，尝试切换到下一个
+                if self.token_manager.current_id() == id {
+                    let _ = self.token_manager.switch_to_next();
+                }
+                
+                return Err(self.classify_balance_error(e, id));
+            }
+        };
 
         let current_usage = usage.current_usage();
         let usage_limit = usage.usage_limit();
@@ -360,7 +378,18 @@ impl AdminService {
             return AdminServiceError::NotFound { id };
         }
 
-        // 2. 上游服务错误特征：HTTP 响应错误或网络错误
+        // 2. 检测账户暂停/被封禁（返回友好消息，完整错误已记录到日志）
+        if msg.contains("TEMPORARILY_SUSPENDED") ||
+           msg.contains("temporarily is suspended") ||
+           msg.contains("temporarily suspended") {
+            // 完整错误已通过 tracing::error! 记录到终端
+            tracing::debug!("凭证 #{} 账户暂停原始错误: {}", id, msg);
+            return AdminServiceError::UpstreamError(
+                format!("凭证 #{} 账户已被暂停，需要联系 AWS 支持解封", id)
+            );
+        }
+
+        // 3. 上游服务错误特征：HTTP 响应错误或网络错误
         let is_upstream_error =
             // HTTP 响应错误（来自 refresh_*_token 的错误消息）
             msg.contains("凭证已过期或无效") ||
@@ -376,9 +405,24 @@ impl AdminService {
             msg.contains("timed out");
 
         if is_upstream_error {
-            AdminServiceError::UpstreamError(msg)
+            // 为其他上游错误也返回简化消息
+            let friendly_msg = if msg.contains("凭证已过期或无效") {
+                format!("凭证 #{} 已过期或无效，请重新添加", id)
+            } else if msg.contains("已被限流") {
+                format!("凭证 #{} 请求过于频繁，请稍后重试", id)
+            } else if msg.contains("服务器错误") || msg.contains("暂时不可用") {
+                format!("凭证 #{} 上游服务暂时不可用", id)
+            } else if msg.contains("timeout") || msg.contains("timed out") {
+                format!("凭证 #{} 请求超时", id)
+            } else if msg.contains("connection") {
+                format!("凭证 #{} 网络连接失败", id)
+            } else {
+                format!("凭证 #{} 上游服务错误", id)
+            };
+            tracing::debug!("凭证 #{} 上游错误原始信息: {}", id, msg);
+            AdminServiceError::UpstreamError(friendly_msg)
         } else {
-            // 3. 默认归类为内部错误（本地验证失败、配置错误等）
+            // 4. 默认归类为内部错误（本地验证失败、配置错误等）
             // 包括：缺少 refreshToken、refreshToken 已被截断、无法生成 machineId 等
             AdminServiceError::InternalError(msg)
         }
@@ -388,7 +432,17 @@ impl AdminService {
     fn classify_add_error(&self, e: anyhow::Error) -> AdminServiceError {
         let msg = e.to_string();
 
-        // 凭证验证失败（refreshToken 无效、格式错误等）
+        // 1. 检测账户暂停/被封禁
+        if msg.contains("TEMPORARILY_SUSPENDED") ||
+           msg.contains("temporarily is suspended") ||
+           msg.contains("temporarily suspended") {
+            tracing::debug!("添加凭证失败，账户暂停原始错误: {}", msg);
+            return AdminServiceError::InvalidCredential(
+                "账户已被暂停，无法添加此凭证，需要联系 AWS 支持解封".to_string()
+            );
+        }
+
+        // 2. 凭证验证失败（refreshToken 无效、格式错误等）
         let is_invalid_credential = msg.contains("缺少 refreshToken")
             || msg.contains("refreshToken 为空")
             || msg.contains("refreshToken 已被截断")
@@ -397,12 +451,28 @@ impl AdminService {
             || msg.contains("已被限流");
 
         if is_invalid_credential {
-            AdminServiceError::InvalidCredential(msg)
+            // 返回简化的错误消息
+            let friendly_msg = if msg.contains("缺少 refreshToken") || msg.contains("refreshToken 为空") {
+                "Refresh Token 不能为空".to_string()
+            } else if msg.contains("refreshToken 已被截断") {
+                "Refresh Token 已被截断，请使用完整的 Token".to_string()
+            } else if msg.contains("凭证已过期或无效") {
+                "凭证已过期或无效".to_string()
+            } else if msg.contains("权限不足") {
+                "凭证权限不足".to_string()
+            } else if msg.contains("已被限流") {
+                "请求过于频繁，请稍后重试".to_string()
+            } else {
+                "凭证验证失败".to_string()
+            };
+            tracing::debug!("添加凭证验证失败原始信息: {}", msg);
+            AdminServiceError::InvalidCredential(friendly_msg)
         } else if msg.contains("error trying to connect")
             || msg.contains("connection")
             || msg.contains("timeout")
         {
-            AdminServiceError::UpstreamError(msg)
+            tracing::debug!("添加凭证网络错误原始信息: {}", msg);
+            AdminServiceError::UpstreamError("网络连接失败，请检查网络后重试".to_string())
         } else {
             AdminServiceError::InternalError(msg)
         }

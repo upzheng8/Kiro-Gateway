@@ -377,6 +377,17 @@ struct CredentialEntry {
     disabled_reason: Option<DisabledReason>,
 }
 
+impl CredentialEntry {
+    /// 检查凭证是否可用于反代
+    /// 
+    /// 同时检查以下条件：
+    /// - disabled 为 false
+    /// - status 不是 "invalid"
+    fn is_available(&self) -> bool {
+        !self.disabled && self.credentials.status != "invalid"
+    }
+}
+
 /// 禁用原因
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DisabledReason {
@@ -384,6 +395,50 @@ enum DisabledReason {
     Manual,
     /// 连续失败达到阈值后自动禁用
     TooManyFailures,
+    /// 账户被暂停（TEMPORARILY_SUSPENDED 或类似 403/401 错误）
+    Suspended,
+}
+
+/// 检查错误是否表示凭证被暂停/无效（需要禁用凭证）
+/// 
+/// 只有在确定凭证本身无效时才返回 true，临时性错误（如限流、服务器错误）不会触发禁用
+fn is_credential_invalid_error(error_msg: &str) -> bool {
+    // 1. 检测 AWS 账户暂停 (最明确的信号)
+    if error_msg.contains("TEMPORARILY_SUSPENDED") ||
+       error_msg.contains("temporarily is suspended") ||
+       error_msg.contains("temporarily suspended") {
+        return true;
+    }
+    
+    // 2. 检测凭证过期/无效（刷新 Token 失败）
+    if error_msg.contains("凭证已过期或无效") ||
+       error_msg.contains("OAuth 凭证已过期或无效") ||
+       error_msg.contains("IdC 凭证已过期或无效") {
+        return true;
+    }
+    
+    // 3. 检测 401 认证失败（Token 无效）
+    // 注意：401 通常表示 Token 失效，需要重新认证
+    if error_msg.contains("401") && 
+       (error_msg.contains("Unauthorized") || error_msg.contains("认证失败")) {
+        return true;
+    }
+    
+    // 4. 检测 403 权限不足 + 特定错误消息
+    // 注意：不是所有 403 都表示凭证无效，只有以下情况才禁用：
+    //   - 含有 suspended 相关信息（上面已检测）
+    //   - 含有 "无效" 或 "revoked" 等关键词
+    if error_msg.contains("403") && error_msg.contains("Forbidden") {
+        // 需要进一步检查是否真的是凭证问题
+        if error_msg.contains("User ID") || 
+           error_msg.contains("revoked") ||
+           error_msg.contains("invalid") ||
+           error_msg.contains("locked") {
+            return true;
+        }
+    }
+    
+    false
 }
 
 // ============================================================================
@@ -513,12 +568,20 @@ impl MultiTokenManager {
                     has_new_ids = true;
                     id
                 });
+                // 根据 status 字段初始化 disabled 状态
+                // 这样 invalid 状态的凭证在重启后仍然被禁用
+                let (disabled, disabled_reason) = if cred.status == "invalid" {
+                    tracing::warn!("凭证 #{} 状态为 invalid，已自动禁用", id);
+                    (true, Some(DisabledReason::Suspended))
+                } else {
+                    (false, None)
+                };
                 CredentialEntry {
                     id,
                     credentials: cred,
                     failure_count: 0,
-                    disabled: false,
-                    disabled_reason: None,
+                    disabled,
+                    disabled_reason,
                 }
             })
             .collect();
@@ -535,9 +598,10 @@ impl MultiTokenManager {
             anyhow::bail!("检测到重复的凭证 ID: {:?}", duplicate_ids);
         }
 
-        // 选择初始凭证：ID 最小的凭证，无凭证时为 0
+        // 选择初始凭证：ID 最小的可用凭证，无可用凭证时为 0
         let initial_id = entries
             .iter()
+            .filter(|e| e.is_available())
             .min_by_key(|e| e.id)
             .map(|e| e.id)
             .unwrap_or(0);
@@ -588,7 +652,12 @@ impl MultiTokenManager {
 
     /// 获取可用凭证数量
     pub fn available_count(&self) -> usize {
-        self.entries.lock().iter().filter(|e| !e.disabled).count()
+        self.entries.lock().iter().filter(|e| e.is_available()).count()
+    }
+
+    /// 获取当前使用的凭证 ID
+    pub fn current_id(&self) -> u64 {
+        *self.current_id.lock()
     }
 
     /// 设置活跃分组（反代使用）
@@ -626,11 +695,11 @@ impl MultiTokenManager {
         let mut current_id = self.current_id.lock();
         let active_group = self.active_group_id.lock();
 
-        // 选择活跃分组内 ID 最小的未禁用凭证
+        // 选择活跃分组内 ID 最小的可用凭证
         let best = entries
             .iter()
             .filter(|e| {
-                if e.disabled {
+                if !e.is_available() {
                     return false;
                 }
                 match active_group.as_ref() {
@@ -712,16 +781,16 @@ impl MultiTokenManager {
                     }
                 };
 
-                // 找到当前凭证（需要在分组内）
+                // 找到当前凭证（需要在分组内且可用）
                 if let Some(entry) = entries.iter().find(|e| {
-                    e.id == current_id && !e.disabled && in_group(&e.credentials)
+                    e.id == current_id && e.is_available() && in_group(&e.credentials)
                 }) {
                     (entry.id, entry.credentials.clone())
                 } else {
                     // 当前凭证不可用，选择分组内 ID 最小的可用凭证
                     let mut best = entries
                         .iter()
-                        .filter(|e| !e.disabled && in_group(&e.credentials))
+                        .filter(|e| e.is_available() && in_group(&e.credentials))
                         .min_by_key(|e| e.id);
 
                     // 没有可用凭证：如果是"自动禁用导致全灭"，做一次类似重启的自愈
@@ -742,7 +811,7 @@ impl MultiTokenManager {
                         }
                         best = entries
                             .iter()
-                            .filter(|e| !e.disabled && in_group(&e.credentials))
+                            .filter(|e| e.is_available() && in_group(&e.credentials))
                             .min_by_key(|e| e.id);
                     }
 
@@ -776,7 +845,28 @@ impl MultiTokenManager {
                     return Ok(ctx);
                 }
                 Err(e) => {
-                    tracing::warn!("凭证 #{} Token 刷新失败，尝试下一个凭证: {}", id, e);
+                    let error_msg = e.to_string();
+                    tracing::warn!("凭证 #{} Token 刷新失败，尝试下一个凭证: {}", id, error_msg);
+
+                    // 检测是否为凭证无效/被暂停的错误
+                    if is_credential_invalid_error(&error_msg) {
+                        let mut entries = self.entries.lock();
+                        if let Some(entry) = entries.iter_mut().find(|e| e.id == id) {
+                            entry.disabled = true;
+                            entry.disabled_reason = Some(DisabledReason::Suspended);
+                            entry.credentials.status = "invalid".to_string();
+                            tracing::error!(
+                                "凭证 #{} 已被自动禁用（账户暂停/无效）: {}",
+                                id,
+                                error_msg
+                            );
+                        }
+                        drop(entries);
+                        // 持久化更改
+                        if let Err(persist_err) = self.persist_credentials() {
+                            tracing::warn!("凭证禁用后持久化失败: {}", persist_err);
+                        }
+                    }
 
                     // Token 刷新失败，切换到下一个优先级的凭证（不计入失败次数）
                     self.switch_to_next_by_id();
@@ -1009,7 +1099,7 @@ impl MultiTokenManager {
             // 切换到 ID 最小的可用凭证
             if let Some(next) = entries
                 .iter()
-                .filter(|e| !e.disabled)
+                .filter(|e| e.is_available())
                 .min_by_key(|e| e.id)
             {
                 *current_id = next.id;
@@ -1024,7 +1114,57 @@ impl MultiTokenManager {
         }
 
         // 检查是否还有可用凭证
-        entries.iter().any(|e| !e.disabled)
+        entries.iter().any(|e| e.is_available())
+    }
+
+    /// 报告指定凭证 API 调用失败（带错误消息）
+    ///
+    /// 与 report_failure 类似，但会检测错误消息：
+    /// - 如果是账户暂停/凭证无效错误，立即禁用凭证
+    /// - 否则按普通失败处理（累计失败次数）
+    ///
+    /// # Arguments
+    /// * `id` - 凭证 ID
+    /// * `error_msg` - 错误响应消息
+    ///
+    /// # Returns
+    /// 是否还有可用凭证
+    pub fn report_failure_with_error(&self, id: u64, error_msg: &str) -> bool {
+        // 检测是否为凭证无效/被暂停的错误
+        if is_credential_invalid_error(error_msg) {
+            let mut entries = self.entries.lock();
+            let mut current_id = self.current_id.lock();
+            
+            if let Some(entry) = entries.iter_mut().find(|e| e.id == id) {
+                entry.disabled = true;
+                entry.disabled_reason = Some(DisabledReason::Suspended);
+                entry.credentials.status = "invalid".to_string();
+                tracing::error!(
+                    "凭证 #{} 已被自动禁用（账户暂停/无效）",
+                    id
+                );
+                
+                // 切换到 ID 最小的可用凭证
+                if let Some(next) = entries.iter().filter(|e| e.is_available()).min_by_key(|e| e.id) {
+                    *current_id = next.id;
+                    tracing::info!("已切换到凭证 #{}", next.id);
+                } else {
+                    tracing::error!("所有凭证均已禁用！");
+                }
+                
+                // 释放锁后持久化
+                drop(current_id);
+                drop(entries);
+                if let Err(e) = self.persist_credentials() {
+                    tracing::warn!("凭证禁用后持久化失败: {}", e);
+                }
+            }
+            
+            return self.entries.lock().iter().any(|e| e.is_available());
+        }
+        
+        // 普通失败处理
+        self.report_failure(id)
     }
 
     /// 切换到下一个可用凭证（按列表顺序轮询）
@@ -1046,7 +1186,7 @@ impl MultiTokenManager {
         // 收集分组内可用的凭证
         let available: Vec<_> = entries
             .iter()
-            .filter(|e| !e.disabled && in_group(&e.credentials))
+            .filter(|e| e.is_available() && in_group(&e.credentials))
             .collect();
         
         if available.is_empty() {
@@ -1136,7 +1276,23 @@ impl MultiTokenManager {
                             }
                         }
                         Err(e) => {
-                            tracing::warn!("凭证 #{} Token 刷新失败: {}", id, e);
+                            let error_msg = e.to_string();
+                            tracing::warn!("凭证 #{} Token 刷新失败: {}", id, error_msg);
+                            
+                            // 检测是否为凭证无效/被暂停的错误
+                            if is_credential_invalid_error(&error_msg) {
+                                let mut entries = entries_ref.lock();
+                                if let Some(entry) = entries.iter_mut().find(|e| e.id == id) {
+                                    entry.disabled = true;
+                                    entry.disabled_reason = Some(DisabledReason::Suspended);
+                                    entry.credentials.status = "invalid".to_string();
+                                    tracing::error!(
+                                        "凭证 #{} 已被自动禁用（账户暂停/无效）: {}",
+                                        id,
+                                        error_msg
+                                    );
+                                }
+                            }
                         }
                     }
                 }
@@ -1145,11 +1301,9 @@ impl MultiTokenManager {
 
         let count = refreshed_count.load(Ordering::SeqCst);
         
-        // 持久化凭证
-        if count > 0 {
-            if let Err(e) = self.persist_credentials() {
-                tracing::warn!("刷新后持久化失败: {}", e);
-            }
+        // 持久化凭证（无论成功还是有凭证被禁用都需要持久化）
+        if let Err(e) = self.persist_credentials() {
+            tracing::warn!("刷新后持久化失败: {}", e);
         }
 
         Ok(count)
@@ -1163,7 +1317,7 @@ impl MultiTokenManager {
     pub fn snapshot(&self) -> ManagerSnapshot {
         let entries = self.entries.lock();
         let current_id = *self.current_id.lock();
-        let available = entries.iter().filter(|e| !e.disabled).count();
+        let available = entries.iter().filter(|e| e.is_available()).count();
 
         ManagerSnapshot {
             entries: entries
@@ -1216,6 +1370,26 @@ impl MultiTokenManager {
         Ok(())
     }
 
+    /// 标记凭证为暂停/无效状态
+    /// 
+    /// 用于自动检测到凭证无效（如 TEMPORARILY_SUSPENDED）时禁用凭证
+    pub fn mark_as_suspended(&self, id: u64) -> anyhow::Result<()> {
+        {
+            let mut entries = self.entries.lock();
+            let entry = entries
+                .iter_mut()
+                .find(|e| e.id == id)
+                .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?;
+            entry.disabled = true;
+            entry.disabled_reason = Some(DisabledReason::Suspended);
+            entry.credentials.status = "invalid".to_string();
+            tracing::error!("凭证 #{} 已被标记为暂停/无效", id);
+        }
+        // 持久化更改
+        self.persist_credentials()?;
+        Ok(())
+    }
+
     /// 重置凭证失败计数并重新启用（Admin API）
     pub fn reset_and_enable(&self, id: u64) -> anyhow::Result<()> {
         {
@@ -1227,6 +1401,10 @@ impl MultiTokenManager {
             entry.failure_count = 0;
             entry.disabled = false;
             entry.disabled_reason = None;
+            // 如果凭证状态是 invalid（被暂停导致），恢复为 normal
+            if entry.credentials.status == "invalid" {
+                entry.credentials.status = "normal".to_string();
+            }
         }
         // 持久化更改
         self.persist_credentials()?;
@@ -1304,21 +1482,43 @@ impl MultiTokenManager {
             };
 
             if is_token_expired(&current_creds) || is_token_expiring_soon(&current_creds) {
-                let new_creds =
-                    refresh_token(&current_creds, &self.config, self.proxy.as_ref()).await?;
-                {
-                    let mut entries = self.entries.lock();
-                    if let Some(entry) = entries.iter_mut().find(|e| e.id == id) {
-                        entry.credentials = new_creds.clone();
+                match refresh_token(&current_creds, &self.config, self.proxy.as_ref()).await {
+                    Ok(new_creds) => {
+                        {
+                            let mut entries = self.entries.lock();
+                            if let Some(entry) = entries.iter_mut().find(|e| e.id == id) {
+                                entry.credentials = new_creds.clone();
+                            }
+                        }
+                        // 持久化失败只记录警告，不影响本次请求
+                        if let Err(e) = self.persist_credentials() {
+                            tracing::warn!("Token 刷新后持久化失败（不影响本次请求）: {}", e);
+                        }
+                        new_creds
+                            .access_token
+                            .ok_or_else(|| anyhow::anyhow!("刷新后无 access_token"))?
+                    }
+                    Err(e) => {
+                        let error_msg = e.to_string();
+                        // 检测是否为凭证无效/被暂停的错误
+                        if is_credential_invalid_error(&error_msg) {
+                            let mut entries = self.entries.lock();
+                            if let Some(entry) = entries.iter_mut().find(|e| e.id == id) {
+                                entry.disabled = true;
+                                entry.disabled_reason = Some(DisabledReason::Suspended);
+                                entry.credentials.status = "invalid".to_string();
+                                tracing::error!(
+                                    "凭证 #{} 已被自动禁用（账户暂停/无效）: {}",
+                                    id,
+                                    error_msg
+                                );
+                            }
+                            drop(entries);
+                            let _ = self.persist_credentials();
+                        }
+                        return Err(e);
                     }
                 }
-                // 持久化失败只记录警告，不影响本次请求
-                if let Err(e) = self.persist_credentials() {
-                    tracing::warn!("Token 刷新后持久化失败（不影响本次请求）: {}", e);
-                }
-                new_creds
-                    .access_token
-                    .ok_or_else(|| anyhow::anyhow!("刷新后无 access_token"))?
             } else {
                 current_creds
                     .access_token
@@ -1339,7 +1539,29 @@ impl MultiTokenManager {
                 .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?
         };
 
-        let usage = get_usage_limits(&credentials, &self.config, &token, self.proxy.as_ref()).await?;
+        let usage = match get_usage_limits(&credentials, &self.config, &token, self.proxy.as_ref()).await {
+            Ok(u) => u,
+            Err(e) => {
+                let error_msg = e.to_string();
+                // 检测是否为凭证无效/被暂停的错误
+                if is_credential_invalid_error(&error_msg) {
+                    let mut entries = self.entries.lock();
+                    if let Some(entry) = entries.iter_mut().find(|e| e.id == id) {
+                        entry.disabled = true;
+                        entry.disabled_reason = Some(DisabledReason::Suspended);
+                        entry.credentials.status = "invalid".to_string();
+                        tracing::error!(
+                            "凭证 #{} 已被自动禁用（账户暂停/无效）: {}",
+                            id,
+                            error_msg
+                        );
+                    }
+                    drop(entries);
+                    let _ = self.persist_credentials();
+                }
+                return Err(e);
+            }
+        };
         
         // 更新凭证的缓存信息（email、subscription、余额）
         let email = usage.email().map(|s| s.to_string());
