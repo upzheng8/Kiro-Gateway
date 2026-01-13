@@ -90,11 +90,20 @@ jobs:
         run: npm ci
 
       # 删除 Cargo.lock 并重新生成，确保跨平台依赖一致
-      - name: Regenerate Cargo.lock
+      - name: Regenerate Cargo.lock (Unix)
+        if: matrix.platform != 'windows-latest'
         run: |
           rm -f Cargo.lock
           cargo generate-lockfile
         working-directory: ./src-tauri
+
+      - name: Regenerate Cargo.lock (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: |
+          if (Test-Path Cargo.lock) { Remove-Item Cargo.lock -Force }
+          cargo generate-lockfile
+        working-directory: ./src-tauri
+        shell: pwsh
 
       # 显示依赖版本用于调试
       - name: Show tauri versions
@@ -104,6 +113,16 @@ jobs:
           grep -A1 'name = "tauri-build"' Cargo.lock || true
           grep -A1 'name = "tauri-utils"' Cargo.lock || true
         working-directory: ./src-tauri
+
+      # 先单独编译 tauri 依赖，查看详细错误
+      - name: Build tauri dependencies
+        run: |
+          echo "=== Building tauri crate ==="
+          cargo build -p tauri --verbose 2>&1 || true
+          echo "=== Build script output ==="
+          find target -name "output" -path "*/tauri-*/output" -exec cat {} \; 2>/dev/null || true
+        working-directory: ./src-tauri
+        if: matrix.platform != 'windows-latest'
 
       # 使用官方 tauri-action 构建
       - name: Build Tauri app
