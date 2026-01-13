@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { RefreshCw, Moon, Sun, Server, Plus, Terminal, Save, Trash2, ToggleLeft, ToggleRight, Ghost, Eye, Info, Download, ChevronLeft, ChevronRight, ChevronDown, FolderOpen, FolderInput, Key, Network, QrCode, Settings2, Globe, ShoppingCart } from 'lucide-react'
+import { RefreshCw, Moon, Sun, Server, Plus, Terminal, Save, Trash2, ToggleLeft, ToggleRight, Ghost, Eye, Info, Download, ChevronLeft, ChevronRight, ChevronDown, FolderOpen, FolderInput, Key, Network, QrCode, Settings2, Globe, ShoppingCart, Search, X, FileText } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -83,10 +83,17 @@ export function Dashboard(_props: DashboardProps) {
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('credentials')
   
+  // 刷新动画状态
+  const [refreshingId, setRefreshingId] = useState<number | null>(null)
+  
   // 删除确认对话框状态
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null)
   const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false)
+  
+  // 重置机器码确认对话框状态
+  const [resetMachineIdConfirmOpen, setResetMachineIdConfirmOpen] = useState(false)
+  const [restoreMachineIdConfirmOpen, setRestoreMachineIdConfirmOpen] = useState(false)
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       return document.documentElement.classList.contains('dark')
@@ -116,6 +123,10 @@ export function Dashboard(_props: DashboardProps) {
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+
+  // 搜索和筛选状态
+  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'available' | 'expired' | 'invalid'>('all')
 
   // 分组状态
   const [groups, setGroups] = useState<import('@/api/credentials').GroupInfo[]>([])
@@ -153,6 +164,16 @@ export function Dashboard(_props: DashboardProps) {
     publishedAt: string;
   } | null>(null)
 
+  // 右键菜单状态
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    credential: import('@/types/api').CredentialStatusItem;
+  } | null>(null)
+
+  // 隐私模式状态
+  const [privacyMode, setPrivacyMode] = useState(false)
+
   // 应用启动时自动检查更新
   useEffect(() => {
     const autoCheckUpdate = async () => {
@@ -175,6 +196,22 @@ export function Dashboard(_props: DashboardProps) {
     }
     autoCheckUpdate()
   }, [])
+
+  // 点击任意位置关闭右键菜单
+  useEffect(() => {
+    if (!contextMenu) return
+    
+    const handleClick = () => setContextMenu(null)
+    // 使用 setTimeout 确保新菜单可以打开后再注册事件
+    const timer = setTimeout(() => {
+      document.addEventListener('click', handleClick)
+    }, 0)
+    
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('click', handleClick)
+    }
+  }, [contextMenu])
 
   // 从后端获取真实日志
   useEffect(() => {
@@ -357,8 +394,8 @@ export function Dashboard(_props: DashboardProps) {
 
   // 刷新单个凭证
   const handleRefreshCredential = async (id: number) => {
+    setRefreshingId(id)
     try {
-      toast.info(`正在刷新凭证 #${id}...`)
       const { refreshCredential } = await import('@/api/credentials')
       const result = await refreshCredential(id)
       
@@ -374,6 +411,8 @@ export function Dashboard(_props: DashboardProps) {
       const message = e?.response?.data?.error?.message || '刷新失败'
       toast.error(message)
       addLog(`[Error] 刷新凭证 #${id} 失败: ${message}`)
+    } finally {
+      setRefreshingId(null)
     }
   }
 
@@ -782,38 +821,103 @@ export function Dashboard(_props: DashboardProps) {
           {activeTab === 'credentials' && (
             <div className="flex flex-col flex-1 gap-4 min-h-0">
               {/* 统计 */}
-              <div className="grid gap-4 grid-cols-4 shrink-0">
+              {/* 筛选栏：统计+搜索 */}
+              <div className="flex items-center gap-3 shrink-0">
+                {/* 状态筛选按钮 */}
                 {(() => {
-                  // 根据分组筛选
-                  const filteredCreds = (data?.credentials || []).filter(c => 
+                  const filteredByGroup = (data?.credentials || []).filter(c => 
                     selectedGroupId === 'all' || c.groupId === selectedGroupId
                   )
-                  const total = filteredCreds.length
-                  const available = filteredCreds.filter(c => !c.disabled && c.status === 'normal').length
-                  const expired = filteredCreds.filter(c => c.status === 'expired').length
-                  const invalid = filteredCreds.filter(c => c.status === 'invalid').length
+                  const total = filteredByGroup.length
+                  // Token 过期判断：expiresAt 已过期 或 status 为 expired
+                  const isTokenExpired = (c: typeof filteredByGroup[0]) => 
+                    c.status === 'expired' || (c.expiresAt && new Date(c.expiresAt) < new Date())
+                  const available = filteredByGroup.filter(c => !c.disabled && c.status === 'normal' && !isTokenExpired(c)).length
+                  const expired = filteredByGroup.filter(c => isTokenExpired(c)).length
+                  const invalid = filteredByGroup.filter(c => c.status === 'invalid' || c.disabled).length
                   
                   return (
-                    <>
-                      <Card className="p-4">
-                        <div className="text-xs text-muted-foreground mb-1">凭证总数</div>
-                        <div className="text-2xl font-bold">{total}</div>
-                      </Card>
-                      <Card className="p-4">
-                        <div className="text-xs text-muted-foreground mb-1">可用凭证</div>
-                        <div className="text-2xl font-bold text-green-600">{available}</div>
-                      </Card>
-                      <Card className="p-4">
-                        <div className="text-xs text-muted-foreground mb-1">Token过期</div>
-                        <div className="text-2xl font-bold text-yellow-600">{expired}</div>
-                      </Card>
-                      <Card className="p-4">
-                        <div className="text-xs text-muted-foreground mb-1">无效/封禁</div>
-                        <div className="text-2xl font-bold text-red-600">{invalid}</div>
-                      </Card>
-                    </>
+                    <div className="flex items-center gap-2">
+                      {/* 隐私模式开关 */}
+                      <button
+                        onClick={() => setPrivacyMode(!privacyMode)}
+                        className={`p-2 rounded-lg border transition-colors ${
+                          privacyMode 
+                            ? 'bg-primary/10 border-primary text-primary' 
+                            : 'border-border bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted'
+                        }`}
+                        title={privacyMode ? '关闭隐私模式' : '开启隐私模式'}
+                      >
+                        <Eye className={`h-4 w-4 ${privacyMode ? 'hidden' : ''}`} />
+                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${privacyMode ? '' : 'hidden'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                        </svg>
+                      </button>
+                      <div className="flex items-center gap-0.5 border rounded-lg px-1">
+                      <button
+                        onClick={() => { setStatusFilter('all'); setCurrentPage(1) }}
+                        className={`px-3 py-2 text-xs transition-colors border-b-2 ${
+                          statusFilter === 'all' 
+                            ? 'border-primary font-medium text-foreground' 
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        全部 {total}
+                      </button>
+                      <button
+                        onClick={() => { setStatusFilter('available'); setCurrentPage(1) }}
+                        className={`px-3 py-2 text-xs transition-colors border-b-2 ${
+                          statusFilter === 'available' 
+                            ? 'border-green-500 font-medium text-green-600 dark:text-green-400' 
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        可用 {available}
+                      </button>
+                      <button
+                        onClick={() => { setStatusFilter('expired'); setCurrentPage(1) }}
+                        className={`px-3 py-2 text-xs transition-colors border-b-2 ${
+                          statusFilter === 'expired' 
+                            ? 'border-yellow-500 font-medium text-yellow-600 dark:text-yellow-400' 
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        过期 {expired}
+                      </button>
+                      <button
+                        onClick={() => { setStatusFilter('invalid'); setCurrentPage(1) }}
+                        className={`px-3 py-2 text-xs transition-colors border-b-2 ${
+                          statusFilter === 'invalid' 
+                            ? 'border-red-500 font-medium text-red-600 dark:text-red-400' 
+                            : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        无效 {invalid}
+                      </button>
+                    </div>
+                    </div>
                   )
                 })()}
+                
+                {/* 搜索框 */}
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="搜索 ID 或邮箱..."
+                    value={searchQuery}
+                    onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
+                    className="pl-8 pr-8 py-1.5 text-xs bg-muted border rounded-lg w-44 focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/70"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* 表格容器 */}
@@ -828,19 +932,37 @@ export function Dashboard(_props: DashboardProps) {
                             type="checkbox" 
                             className="w-4 h-4 rounded"
                             checked={(() => {
-                              const allCreds = (data?.credentials || []).filter(c => 
+                              let creds = (data?.credentials || []).filter(c => 
                                 selectedGroupId === 'all' || c.groupId === selectedGroupId
                               )
+                              // Token 过期判断
+                              const isExpired = (c: typeof creds[0]) => c.status === 'expired' || (c.expiresAt && new Date(c.expiresAt) < new Date())
+                              if (statusFilter === 'available') creds = creds.filter(c => !c.disabled && c.status === 'normal' && !isExpired(c))
+                              else if (statusFilter === 'expired') creds = creds.filter(c => isExpired(c))
+                              else if (statusFilter === 'invalid') creds = creds.filter(c => c.status === 'invalid' || c.disabled)
+                              if (searchQuery.trim()) {
+                                const q = searchQuery.toLowerCase().trim()
+                                creds = creds.filter(c => c.id.toString().includes(q) || (c.email && c.email.toLowerCase().includes(q)))
+                              }
                               const startIdx = (currentPage - 1) * pageSize
-                              const pageData = allCreds.slice(startIdx, startIdx + pageSize)
+                              const pageData = creds.slice(startIdx, startIdx + pageSize)
                               return pageData.length > 0 && pageData.every(c => selectedIds.has(c.id))
                             })()}
                             onChange={(e) => {
-                              const allCreds = (data?.credentials || []).filter(c => 
+                              let creds = (data?.credentials || []).filter(c => 
                                 selectedGroupId === 'all' || c.groupId === selectedGroupId
                               )
+                              // Token 过期判断
+                              const isExpired2 = (c: typeof creds[0]) => c.status === 'expired' || (c.expiresAt && new Date(c.expiresAt) < new Date())
+                              if (statusFilter === 'available') creds = creds.filter(c => !c.disabled && c.status === 'normal' && !isExpired2(c))
+                              else if (statusFilter === 'expired') creds = creds.filter(c => isExpired2(c))
+                              else if (statusFilter === 'invalid') creds = creds.filter(c => c.status === 'invalid' || c.disabled)
+                              if (searchQuery.trim()) {
+                                const q = searchQuery.toLowerCase().trim()
+                                creds = creds.filter(c => c.id.toString().includes(q) || (c.email && c.email.toLowerCase().includes(q)))
+                              }
                               const startIdx = (currentPage - 1) * pageSize
-                              const pageData = allCreds.slice(startIdx, startIdx + pageSize)
+                              const pageData = creds.slice(startIdx, startIdx + pageSize)
                               if (e.target.checked) {
                                 const newSet = new Set(selectedIds)
                                 pageData.forEach(c => newSet.add(c.id))
@@ -856,18 +978,42 @@ export function Dashboard(_props: DashboardProps) {
                         <th className="text-center px-4 py-3 font-medium">ID</th>
                         <th className="text-center px-4 py-3 font-medium">邮箱</th>
                         <th className="text-center px-4 py-3 font-medium">剩余额度</th>
-                        <th className="text-center px-4 py-3 font-medium">状态/Token有效期</th>
+                        <th className="text-center px-4 py-3 font-medium">状态/Token</th>
                         <th className="text-center px-4 py-3 font-medium">操作</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {(() => {
                         // 根据分组筛选凭证
-                        const allCreds = (data?.credentials || []).filter(c => 
+                        // 1. 分组筛选
+                        let filteredCreds = (data?.credentials || []).filter(c => 
                           selectedGroupId === 'all' || c.groupId === selectedGroupId
                         )
+                        
+                        // 2. Token 过期判断辅助函数
+                        const isTokenExpired = (c: typeof filteredCreds[0]) => 
+                          c.status === 'expired' || (c.expiresAt && new Date(c.expiresAt) < new Date())
+                        
+                        // 3. 状态筛选
+                        if (statusFilter === 'available') {
+                          filteredCreds = filteredCreds.filter(c => !c.disabled && c.status === 'normal' && !isTokenExpired(c))
+                        } else if (statusFilter === 'expired') {
+                          filteredCreds = filteredCreds.filter(c => isTokenExpired(c))
+                        } else if (statusFilter === 'invalid') {
+                          filteredCreds = filteredCreds.filter(c => c.status === 'invalid' || c.disabled)
+                        }
+                        
+                        // 3. 搜索过滤
+                        if (searchQuery.trim()) {
+                          const query = searchQuery.toLowerCase().trim()
+                          filteredCreds = filteredCreds.filter(c => 
+                            c.id.toString().includes(query) ||
+                            (c.email && c.email.toLowerCase().includes(query))
+                          )
+                        }
+                        
                         const startIdx = (currentPage - 1) * pageSize
-                        const pageData = allCreds.slice(startIdx, startIdx + pageSize)
+                        const pageData = filteredCreds.slice(startIdx, startIdx + pageSize)
                         
                         if (pageData.length === 0) {
                           return (
@@ -885,9 +1031,14 @@ export function Dashboard(_props: DashboardProps) {
                           return (
                           <tr 
                             key={cred.id} 
-                            className={`transition-colors ${isLocalClientCred 
-                              ? 'bg-blue-500/10 hover:bg-blue-500/20' 
+                            className={`transition-colors cursor-context-menu ${isLocalClientCred 
+                              ? 'bg-blue-500/20 dark:bg-blue-500/30 hover:bg-blue-500/30 dark:hover:bg-blue-500/40' 
                               : 'hover:bg-muted/30'}`}
+                            onContextMenu={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setContextMenu({ x: e.clientX, y: e.clientY, credential: cred })
+                            }}
                           >
                             <td className="px-2 py-3 text-center">
                               <input 
@@ -909,47 +1060,49 @@ export function Dashboard(_props: DashboardProps) {
                               <span className="font-mono">#{cred.id}</span>
                             </td>
                             <td className="px-4 py-3 text-center text-xs">
-                              {cred.email ? (
+                              {privacyMode ? (
+                                <span className="text-muted-foreground">KiroGateway@mail.com</span>
+                              ) : cred.email ? (
                                 <span 
                                   className="cursor-default" 
                                   title={cred.email}
                                 >
-                                  {cred.email.replace(/(.{3}).*(@.*)/, '$1****$2')}
+                                  {cred.email}
                                 </span>
                               ) : (
-                                <span className="text-muted-foreground">-</span>
+                                <span className="text-slate-400 dark:text-slate-500">-</span>
                               )}
                             </td>
                             <td className="px-4 py-3 text-center font-mono text-xs">
                               {cred.disabled ? (
-                                <span className="text-muted-foreground">-</span>
+                                <span className="text-slate-400 dark:text-slate-500">-</span>
                               ) : cred.remaining !== null ? (
-                                <span className={cred.remaining < 1 ? 'text-red-500' : 'text-green-600'}>
+                                <span className={cred.remaining < 1 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}>
                                   ${cred.remaining.toFixed(2)}
                                 </span>
                               ) : (
-                                <span className="text-muted-foreground">-</span>
+                                <span className="text-slate-400 dark:text-slate-500">-</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-center">
-                              <div className="flex items-center justify-center gap-2">
+                            <td className="px-3 py-3 text-center">
+                              <div className="inline-flex items-center gap-1">
                                 {/* 状态 Badge */}
                                 {(() => {
                                   if (cred.disabled) {
-                                    return <Badge variant="secondary" className="text-xs">已禁用</Badge>
+                                    return <Badge variant="secondary" className="text-[10px] px-1.5 py-0">禁用</Badge>
                                   }
                                   switch (cred.status) {
                                     case 'invalid':
-                                      return <Badge variant="destructive" className="text-xs">无效</Badge>
+                                      return <Badge variant="destructive" className="text-[10px] px-1.5 py-0">无效</Badge>
                                     case 'expired':
-                                      return <Badge variant="outline" className="text-xs text-yellow-600 border-yellow-600">已过期</Badge>
+                                      return <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-yellow-600 dark:text-yellow-400 border-yellow-600 dark:border-yellow-400">过期</Badge>
                                     default:
-                                      return <Badge variant="success" className="text-xs">正常</Badge>
+                                      return <Badge variant="success" className="text-[10px] px-1.5 py-0">正常</Badge>
                                   }
                                 })()}
-                                {/* Token有效期 */}
-                                <span className="font-mono text-xs">
-                                  {cred.disabled ? null : cred.expiresAt ? (
+                                {/* Token有效期 - 固定宽度确保对齐 */}
+                                <span className="text-[11px] font-mono w-6 text-right">
+                                  {!cred.disabled && cred.expiresAt && cred.status !== 'invalid' ? (
                                     (() => {
                                       const expires = new Date(cred.expiresAt)
                                       const now = new Date()
@@ -957,14 +1110,14 @@ export function Dashboard(_props: DashboardProps) {
                                       const diffMin = Math.floor(diffMs / 60000)
                                       
                                       if (diffMin < 0) {
-                                        return null // 已过期由 Badge 显示
+                                        return <span className="text-red-500 dark:text-red-400">过期</span>
                                       } else if (diffMin < 10) {
-                                        return <span className="text-yellow-500">{diffMin}分钟</span>
+                                        return <span className="text-yellow-600 dark:text-yellow-400">{diffMin}m</span>
                                       } else if (diffMin < 60) {
-                                        return <span className="text-green-500">{diffMin}分钟</span>
+                                        return <span className="text-slate-600 dark:text-slate-300">{diffMin}m</span>
                                       } else {
                                         const hours = Math.floor(diffMin / 60)
-                                        return <span className="text-green-600">{hours}小时</span>
+                                        return <span className="text-slate-600 dark:text-slate-300">{hours}h</span>
                                       }
                                     })()
                                   ) : null}
@@ -980,12 +1133,14 @@ export function Dashboard(_props: DashboardProps) {
                                       const result = await switchToCredential(cred.id)
                                       toast.success(result.message)
                                       addLog(`[System] 已切换到凭证 #${cred.id}`)
+                                      // 刷新数据以更新高亮状态
+                                      refetch()
                                     } catch (e: any) {
                                       toast.error(e.response?.data?.error?.message || '切换失败')
                                     }
                                   }}
                                   className="p-1.5 hover:bg-muted rounded"
-                                  title="切换到此账号"
+                                  title="切换账号"
                                 >
                                   <Ghost className="h-4 w-4" />
                                 </button>
@@ -994,14 +1149,15 @@ export function Dashboard(_props: DashboardProps) {
                                   className="p-1.5 hover:bg-muted rounded"
                                   title="查看详情"
                                 >
-                                  <Eye className="h-4 w-4" />
+                                  <FileText className="h-4 w-4" />
                                 </button>
                                 <button
                                   onClick={() => handleRefreshCredential(cred.id)}
                                   className="p-1.5 hover:bg-muted rounded"
                                   title="刷新凭证"
+                                  disabled={refreshingId === cred.id}
                                 >
-                                  <RefreshCw className="h-4 w-4" />
+                                  <RefreshCw className={`h-4 w-4 ${refreshingId === cred.id ? 'animate-spin' : ''}`} />
                                 </button>
                                 <button
                                   onClick={() => handleToggleDisabled(cred.id, cred.disabled)}
@@ -1032,10 +1188,32 @@ export function Dashboard(_props: DashboardProps) {
                 
                 {/* 分页栏 - 固定在底部 */}
                 {(() => {
-                  // 根据当前分组筛选凭证总数
-                  const filteredTotal = (data?.credentials || []).filter(c => 
+                  // 使用相同的筛选逻辑计算总数
+                  let filteredCreds = (data?.credentials || []).filter(c => 
                     selectedGroupId === 'all' || c.groupId === selectedGroupId
-                  ).length
+                  )
+                  
+                  // Token 过期判断辅助函数
+                  const isTokenExpired = (c: typeof filteredCreds[0]) => 
+                    c.status === 'expired' || (c.expiresAt && new Date(c.expiresAt) < new Date())
+                  
+                  if (statusFilter === 'available') {
+                    filteredCreds = filteredCreds.filter(c => !c.disabled && c.status === 'normal' && !isTokenExpired(c))
+                  } else if (statusFilter === 'expired') {
+                    filteredCreds = filteredCreds.filter(c => isTokenExpired(c))
+                  } else if (statusFilter === 'invalid') {
+                    filteredCreds = filteredCreds.filter(c => c.status === 'invalid' || c.disabled)
+                  }
+                  
+                  if (searchQuery.trim()) {
+                    const query = searchQuery.toLowerCase().trim()
+                    filteredCreds = filteredCreds.filter(c => 
+                      c.id.toString().includes(query) ||
+                      (c.email && c.email.toLowerCase().includes(query))
+                    )
+                  }
+                  
+                  const filteredTotal = filteredCreds.length
                   const totalPages = Math.max(1, Math.ceil(filteredTotal / pageSize))
                   
                   return (
@@ -1183,7 +1361,37 @@ export function Dashboard(_props: DashboardProps) {
                     
                     {/* 当前使用的凭证信息 */}
                     <div className="p-3 bg-muted/50 rounded-lg border border-border">
-                      <div className="text-xs text-muted-foreground mb-2">当前使用凭证</div>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs text-muted-foreground">当前使用凭证</div>
+                        {proxyRunning && data?.currentId && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleRefreshCredential(data.currentId)}
+                              className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-foreground"
+                              title="刷新当前凭证"
+                              disabled={refreshingId === data.currentId}
+                            >
+                              <RefreshCw className={`h-3.5 w-3.5 ${refreshingId === data.currentId ? 'animate-spin' : ''}`} />
+                            </button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const { switchToNextCredential } = await import('@/api/credentials')
+                                  const result = await switchToNextCredential()
+                                  toast.success(result.message)
+                                  refetch()
+                                } catch (e: any) {
+                                  toast.error(e.response?.data?.error?.message || '切换失败')
+                                }
+                              }}
+                              className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-foreground"
+                              title="切换到下一个凭证"
+                            >
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       {(() => {
                         if (!proxyRunning) {
                           return (
@@ -1486,7 +1694,7 @@ export function Dashboard(_props: DashboardProps) {
                     )}
                   </div>
                   <div className="text-[10px] text-muted-foreground">
-                    锁定后反代服务将使用指定模型，忽略客户端指定的模型
+                    锁定后客户端将使用指定模型，监控到客户端使用其他模型时会自动切换
                   </div>
                 </CardContent>
               </Card>
@@ -1530,9 +1738,7 @@ export function Dashboard(_props: DashboardProps) {
                       备份机器码：{backupMachineId.machineId}    {backupMachineId.backupTime}
                     </div>
                   )}
-                  <div className="text-xs text-muted-foreground">
-                    机器码用于识别客户端设备，可备份后在其他设备恢复。
-                  </div>
+                 
                   <div className="flex gap-2">
                     <Button 
                       variant="outline" 
@@ -1555,31 +1761,14 @@ export function Dashboard(_props: DashboardProps) {
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      onClick={async () => {
-                        try {
-                          const { restoreMachineId } = await import('@/api/credentials')
-                          const result = await restoreMachineId()
-                          toast.success(result.message)
-                        } catch (e: any) {
-                          toast.error(e.response?.data?.error?.message || '恢复失败')
-                        }
-                      }}
+                      onClick={() => setRestoreMachineIdConfirmOpen(true)}
                     >
                       恢复机器码
                     </Button>
                     <Button 
                       variant="destructive" 
                       size="sm" 
-                      onClick={async () => {
-                        if (!confirm('确定要重置机器码吗？这将生成新的设备标识。')) return
-                        try {
-                          const { resetMachineId } = await import('@/api/credentials')
-                          const result = await resetMachineId()
-                          toast.success(result.message)
-                        } catch (e: any) {
-                          toast.error(e.response?.data?.error?.message || '重置失败')
-                        }
-                      }}
+                      onClick={() => setResetMachineIdConfirmOpen(true)}
                     >
                       重置机器码
                     </Button>
@@ -1642,6 +1831,51 @@ export function Dashboard(_props: DashboardProps) {
         onConfirm={handleConfirmBatchDelete}
         confirmText="删除"
         variant="destructive"
+      />
+
+      {/* 重置机器码确认对话框 */}
+      <ConfirmDialog
+        open={resetMachineIdConfirmOpen}
+        onOpenChange={setResetMachineIdConfirmOpen}
+        title="重置机器码"
+        description="确定要重置机器码吗？这将生成新的设备标识。"
+        onConfirm={async () => {
+          try {
+            const { resetMachineId } = await import('@/api/credentials')
+            const result = await resetMachineId()
+            toast.success(result.message)
+            // 刷新机器码显示
+            const { getMachineId } = await import('@/api/credentials')
+            const machineIdResult = await getMachineId()
+            setCurrentMachineId(machineIdResult.machineId || '')
+          } catch (e: any) {
+            toast.error(e.response?.data?.error?.message || '重置失败')
+          }
+        }}
+        confirmText="重置"
+        variant="destructive"
+      />
+
+      {/* 恢复机器码确认对话框 */}
+      <ConfirmDialog
+        open={restoreMachineIdConfirmOpen}
+        onOpenChange={setRestoreMachineIdConfirmOpen}
+        title="恢复机器码"
+        description="确定要恢复备份的机器码吗？当前机器码将被替换。"
+        onConfirm={async () => {
+          try {
+            const { restoreMachineId } = await import('@/api/credentials')
+            const result = await restoreMachineId()
+            toast.success(result.message)
+            // 刷新机器码显示
+            const { getMachineId } = await import('@/api/credentials')
+            const machineIdResult = await getMachineId()
+            setCurrentMachineId(machineIdResult.machineId || '')
+          } catch (e: any) {
+            toast.error(e.response?.data?.error?.message || '恢复失败')
+          }
+        }}
+        confirmText="恢复"
       />
 
       {/* 更新弹窗 */}
@@ -1914,6 +2148,85 @@ export function Dashboard(_props: DashboardProps) {
           </div>
         </div>
       )}
+
+      {/* 右键上下文菜单 */}
+      {contextMenu && (() => {
+        // 边界检测：确保菜单不会超出窗口
+        const menuWidth = 160
+        const menuHeight = 200
+        const x = Math.min(contextMenu.x, window.innerWidth - menuWidth - 10)
+        const y = Math.min(contextMenu.y, window.innerHeight - menuHeight - 10)
+        
+        return (
+        <div
+          className="fixed z-[100] bg-popover border rounded-lg shadow-lg py-1 min-w-[114px]"
+          style={{ left: x, top: y }}
+          onClick={() => setContextMenu(null)}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <button
+            className="w-full px-3 py-2 text-sm text-left hover:bg-muted flex items-center gap-2"
+            onClick={async () => {
+              try {
+                const { switchToCredential } = await import('@/api/credentials')
+                const result = await switchToCredential(contextMenu.credential.id)
+                toast.success(result.message)
+                refetch()
+              } catch (e: any) {
+                toast.error(e.response?.data?.error?.message || '切换失败')
+              }
+            }}
+          >
+            <Ghost className="h-4 w-4" />
+            切换账号
+          </button>
+          <button
+            className="w-full px-3 py-2 text-sm text-left hover:bg-muted flex items-center gap-2"
+            onClick={() => {
+              setSelectedCredential(contextMenu.credential)
+              setBalanceDialogOpen(true)
+            }}
+          >
+            <FileText className="h-4 w-4" />
+            查看详情
+          </button>
+          <button
+            className="w-full px-3 py-2 text-sm text-left hover:bg-muted flex items-center gap-2"
+            onClick={() => handleRefreshCredential(contextMenu.credential.id)}
+          >
+            <RefreshCw className="h-4 w-4" />
+            刷新凭证
+          </button>
+          <div className="border-t my-1" />
+          <button
+            className="w-full px-3 py-2 text-sm text-left hover:bg-muted flex items-center gap-2"
+            onClick={() => handleToggleDisabled(contextMenu.credential.id, contextMenu.credential.disabled)}
+          >
+            {contextMenu.credential.disabled ? (
+              <>
+                <ToggleRight className="h-4 w-4 text-green-500" />
+                启用凭证
+              </>
+            ) : (
+              <>
+                <ToggleLeft className="h-4 w-4" />
+                禁用凭证
+              </>
+            )}
+          </button>
+          <button
+            className="w-full px-3 py-2 text-sm text-left hover:bg-muted text-red-500 flex items-center gap-2"
+            onClick={() => { 
+              setPendingDeleteId(contextMenu.credential.id)
+              setDeleteConfirmOpen(true)
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+            删除凭证
+          </button>
+        </div>
+        )
+      })()}
     </div>
   )
 }

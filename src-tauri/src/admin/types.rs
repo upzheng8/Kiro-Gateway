@@ -27,8 +27,6 @@ pub struct CredentialsStatusResponse {
 pub struct CredentialStatusItem {
     /// 凭证唯一 ID
     pub id: u64,
-    /// 优先级（数字越小优先级越高）
-    pub priority: u32,
     /// 是否被禁用
     pub disabled: bool,
     /// 连续失败次数
@@ -118,14 +116,6 @@ pub struct SetDisabledRequest {
     pub disabled: bool,
 }
 
-/// 修改优先级请求
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SetPriorityRequest {
-    /// 新优先级值
-    pub priority: u32,
-}
-
 /// 添加凭证请求
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -142,10 +132,6 @@ pub struct AddCredentialRequest {
 
     /// OIDC Client Secret（IdC 认证需要）
     pub client_secret: Option<String>,
-
-    /// 优先级（可选，默认 0）
-    #[serde(default)]
-    pub priority: u32,
 }
 
 fn default_auth_method() -> String {
@@ -183,9 +169,6 @@ pub struct ImportCredentialItem {
     pub client_id: Option<String>,
     /// OIDC Client Secret（IdC 认证需要）
     pub client_secret: Option<String>,
-    /// 优先级（可选，默认 0）
-    #[serde(default)]
-    pub priority: u32,
     /// 分组 ID（可选，默认 "default"）
     #[serde(default = "default_group_id")]
     pub group_id: String,
@@ -207,6 +190,8 @@ pub struct ImportCredentialsResponse {
     pub skipped_count: usize,
     /// 新添加的凭证 ID 列表
     pub credential_ids: Vec<u64>,
+    /// 跳过的原因列表（每个失败的凭证对应一个原因）
+    pub skipped_reasons: Vec<String>,
 }
 
 // ============ 余额查询 ============

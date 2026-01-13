@@ -86,6 +86,13 @@ jobs:
           prerelease: false
           body: |
             ## 🚀 Kiro Gateway ${{ github.ref_name }} 发布
+            1. Kiro Gateway具有客户端相关操作功能 和反代功能
+            2. 可进行模型锁定，机器码重置，定时刷新token
+            3. 可客户端上号，刷新，余额显示，状态显示，有效期显示
+            4. 可批量导入json，或一行一个Refresh Token
+            5. 可分组进行管理账号
+            6. 反代功能来自kiro.rs进行优化，可指定分组反代，随用随启
+            7. bug等优化问题请查看关于加群反馈或github issues
 
             ### 下载说明
             | 平台 | 文件名 | 说明 |

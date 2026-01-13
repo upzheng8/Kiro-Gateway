@@ -373,6 +373,17 @@ struct CredentialEntry {
     failure_count: u32,
     /// 是否已禁用
     disabled: bool,
+    /// 禁用原因（用于区分手动禁用 vs 自动禁用，便于自愈）
+    disabled_reason: Option<DisabledReason>,
+}
+
+/// 禁用原因
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DisabledReason {
+    /// Admin API 手动禁用
+    Manual,
+    /// 连续失败达到阈值后自动禁用
+    TooManyFailures,
 }
 
 // ============================================================================
@@ -385,8 +396,6 @@ struct CredentialEntry {
 pub struct CredentialEntrySnapshot {
     /// 凭证唯一 ID
     pub id: u64,
-    /// 优先级
-    pub priority: u32,
     /// 是否被禁用
     pub disabled: bool,
     /// 连续失败次数
@@ -509,6 +518,7 @@ impl MultiTokenManager {
                     credentials: cred,
                     failure_count: 0,
                     disabled: false,
+                    disabled_reason: None,
                 }
             })
             .collect();
@@ -525,10 +535,10 @@ impl MultiTokenManager {
             anyhow::bail!("检测到重复的凭证 ID: {:?}", duplicate_ids);
         }
 
-        // 选择初始凭证：优先级最高（priority 最小）的凭证，无凭证时为 0
+        // 选择初始凭证：ID 最小的凭证，无凭证时为 0
         let initial_id = entries
             .iter()
-            .min_by_key(|e| e.credentials.priority)
+            .min_by_key(|e| e.id)
             .map(|e| e.id)
             .unwrap_or(0);
 
@@ -588,7 +598,7 @@ impl MultiTokenManager {
             *active = group_id;
         }
         // 切换分组后重新选择凭证（锁已释放）
-        self.select_highest_priority_in_group();
+        self.select_smallest_id_in_group();
     }
 
     /// 获取当前活跃分组
@@ -596,9 +606,9 @@ impl MultiTokenManager {
         self.active_group_id.lock().clone()
     }
 
-    /// 刷新凭证选择（重新选择当前分组内优先级最高的凭证）
+    /// 刷新凭证选择（重新选择当前分组内 ID 最小的凭证）
     pub fn refresh_credential_selection(&self) {
-        self.select_highest_priority_in_group();
+        self.select_smallest_id_in_group();
     }
 
     /// 检查凭证是否在活跃分组内
@@ -610,13 +620,13 @@ impl MultiTokenManager {
         }
     }
 
-    /// 选择活跃分组内优先级最高的凭证
-    fn select_highest_priority_in_group(&self) {
+    /// 选择活跃分组内 ID 最小的凭证
+    fn select_smallest_id_in_group(&self) {
         let entries = self.entries.lock();
         let mut current_id = self.current_id.lock();
         let active_group = self.active_group_id.lock();
 
-        // 选择活跃分组内优先级最高的未禁用凭证
+        // 选择活跃分组内 ID 最小的未禁用凭证
         let best = entries
             .iter()
             .filter(|e| {
@@ -628,16 +638,15 @@ impl MultiTokenManager {
                     Some(group_id) => &e.credentials.group_id == group_id,
                 }
             })
-            .min_by_key(|e| e.credentials.priority);
+            .min_by_key(|e| e.id);
 
         match best {
             Some(entry) => {
                 if entry.id != *current_id {
                     tracing::info!(
-                        "分组切换后选择凭证: #{} -> #{}（优先级 {}）",
+                        "分组切换后选择凭证: #{} -> #{}",
                         *current_id,
-                        entry.id,
-                        entry.credentials.priority
+                        entry.id
                     );
                     *current_id = entry.id;
                 } else {
@@ -691,7 +700,7 @@ impl MultiTokenManager {
             }
 
             let (id, credentials) = {
-                let entries = self.entries.lock();
+                let mut entries = self.entries.lock();
                 let current_id = *self.current_id.lock();
                 let active_group = self.active_group_id.lock();
 
@@ -709,12 +718,35 @@ impl MultiTokenManager {
                 }) {
                     (entry.id, entry.credentials.clone())
                 } else {
-                    // 当前凭证不可用，选择分组内优先级最高的可用凭证
-                    if let Some(entry) = entries
+                    // 当前凭证不可用，选择分组内 ID 最小的可用凭证
+                    let mut best = entries
                         .iter()
                         .filter(|e| !e.disabled && in_group(&e.credentials))
-                        .min_by_key(|e| e.credentials.priority)
+                        .min_by_key(|e| e.id);
+
+                    // 没有可用凭证：如果是"自动禁用导致全灭"，做一次类似重启的自愈
+                    if best.is_none()
+                        && entries.iter().any(|e| {
+                            e.disabled && e.disabled_reason == Some(DisabledReason::TooManyFailures)
+                        })
                     {
+                        tracing::warn!(
+                            "所有凭证均已被自动禁用，执行自愈：重置失败计数并重新启用（等价于重启）"
+                        );
+                        for e in entries.iter_mut() {
+                            if e.disabled_reason == Some(DisabledReason::TooManyFailures) {
+                                e.disabled = false;
+                                e.disabled_reason = None;
+                                e.failure_count = 0;
+                            }
+                        }
+                        best = entries
+                            .iter()
+                            .filter(|e| !e.disabled && in_group(&e.credentials))
+                            .min_by_key(|e| e.id);
+                    }
+
+                    if let Some(entry) = best {
                         // 先提取数据
                         let new_id = entry.id;
                         let new_creds = entry.credentials.clone();
@@ -747,53 +779,50 @@ impl MultiTokenManager {
                     tracing::warn!("凭证 #{} Token 刷新失败，尝试下一个凭证: {}", id, e);
 
                     // Token 刷新失败，切换到下一个优先级的凭证（不计入失败次数）
-                    self.switch_to_next_by_priority();
+                    self.switch_to_next_by_id();
                     tried_count += 1;
                 }
             }
         }
     }
 
-    /// 切换到下一个优先级最高的可用凭证（内部方法）
-    fn switch_to_next_by_priority(&self) {
+    /// 切换到下一个 ID 最小的可用凭证（内部方法）
+    fn switch_to_next_by_id(&self) {
         let entries = self.entries.lock();
         let mut current_id = self.current_id.lock();
 
-        // 选择优先级最高的未禁用凭证（排除当前凭证）
+        // 选择 ID 最小的未禁用凭证（排除当前凭证）
         if let Some(entry) = entries
             .iter()
             .filter(|e| !e.disabled && e.id != *current_id)
-            .min_by_key(|e| e.credentials.priority)
+            .min_by_key(|e| e.id)
         {
             *current_id = entry.id;
             tracing::info!(
-                "已切换到凭证 #{}（优先级 {}）",
-                entry.id,
-                entry.credentials.priority
+                "已切换到凭证 #{}",
+                entry.id
             );
         }
     }
 
-    /// 选择优先级最高的未禁用凭证作为当前凭证（内部方法）
+    /// 选择 ID 最小的未禁用凭证作为当前凭证（内部方法）
     ///
-    /// 与 `switch_to_next_by_priority` 不同，此方法不排除当前凭证，
-    /// 纯粹按优先级选择，用于优先级变更后立即生效
-    fn select_highest_priority(&self) {
+    /// 不排除当前凭证，纯粹按 ID 选择
+    fn select_smallest_id(&self) {
         let entries = self.entries.lock();
         let mut current_id = self.current_id.lock();
 
-        // 选择优先级最高的未禁用凭证（不排除当前凭证）
+        // 选择 ID 最小的未禁用凭证（不排除当前凭证）
         if let Some(best) = entries
             .iter()
             .filter(|e| !e.disabled)
-            .min_by_key(|e| e.credentials.priority)
+            .min_by_key(|e| e.id)
         {
             if best.id != *current_id {
                 tracing::info!(
-                    "优先级变更后切换凭证: #{} -> #{}（优先级 {}）",
+                    "切换凭证: #{} -> #{}",
                     *current_id,
-                    best.id,
-                    best.credentials.priority
+                    best.id
                 );
                 *current_id = best.id;
             }
@@ -974,19 +1003,19 @@ impl MultiTokenManager {
 
         if failure_count >= MAX_FAILURES_PER_CREDENTIAL {
             entry.disabled = true;
+            entry.disabled_reason = Some(DisabledReason::TooManyFailures);
             tracing::error!("凭证 #{} 已连续失败 {} 次，已被禁用", id, failure_count);
 
-            // 切换到优先级最高的可用凭证
+            // 切换到 ID 最小的可用凭证
             if let Some(next) = entries
                 .iter()
                 .filter(|e| !e.disabled)
-                .min_by_key(|e| e.credentials.priority)
+                .min_by_key(|e| e.id)
             {
                 *current_id = next.id;
                 tracing::info!(
-                    "已切换到凭证 #{}（优先级 {}）",
-                    next.id,
-                    next.credentials.priority
+                    "已切换到凭证 #{}",
+                    next.id
                 );
             } else {
                 tracing::error!("所有凭证均已禁用！");
@@ -998,30 +1027,57 @@ impl MultiTokenManager {
         entries.iter().any(|e| !e.disabled)
     }
 
-    /// 切换到优先级最高的可用凭证
+    /// 切换到下一个可用凭证（按列表顺序轮询）
     ///
     /// 返回是否成功切换
     pub fn switch_to_next(&self) -> bool {
         let entries = self.entries.lock();
         let mut current_id = self.current_id.lock();
+        let active_group = self.active_group_id.lock();
 
-        // 选择优先级最高的未禁用凭证（排除当前凭证）
-        if let Some(next) = entries
+        // 分组过滤闭包
+        let in_group = |cred: &KiroCredentials| -> bool {
+            match active_group.as_ref() {
+                None => true,
+                Some(group_id) => &cred.group_id == group_id,
+            }
+        };
+
+        // 收集分组内可用的凭证
+        let available: Vec<_> = entries
             .iter()
-            .filter(|e| !e.disabled && e.id != *current_id)
-            .min_by_key(|e| e.credentials.priority)
-        {
-            *current_id = next.id;
-            tracing::info!(
-                "已切换到凭证 #{}（优先级 {}）",
-                next.id,
-                next.credentials.priority
-            );
-            true
-        } else {
-            // 没有其他可用凭证，检查当前凭证是否可用
-            entries.iter().any(|e| e.id == *current_id && !e.disabled)
+            .filter(|e| !e.disabled && in_group(&e.credentials))
+            .collect();
+        
+        if available.is_empty() {
+            tracing::warn!("没有可用的凭证");
+            return false;
         }
+        
+        if available.len() == 1 {
+            // 只有一个凭证，无法切换
+            tracing::info!("只有一个可用凭证，无法切换");
+            return false;
+        }
+
+        // 找到当前凭证在可用列表中的位置，然后选择下一个
+        let current_available_pos = available.iter().position(|e| e.id == *current_id);
+        
+        let next = if let Some(pos) = current_available_pos {
+            // 循环到下一个
+            let next_pos = (pos + 1) % available.len();
+            available[next_pos]
+        } else {
+            // 当前凭证不在可用列表中，选择第一个
+            available[0]
+        };
+
+        *current_id = next.id;
+        tracing::info!(
+            "已切换到凭证 #{}（顺序轮询）",
+            next.id,
+        );
+        true
     }
 
     /// 获取使用额度信息
@@ -1114,7 +1170,6 @@ impl MultiTokenManager {
                 .iter()
                 .map(|e| CredentialEntrySnapshot {
                     id: e.id,
-                    priority: e.credentials.priority,
                     disabled: e.disabled,
                     failure_count: e.failure_count,
                     auth_method: e.credentials.auth_method.clone(),
@@ -1151,28 +1206,11 @@ impl MultiTokenManager {
             if !disabled {
                 // 启用时重置失败计数
                 entry.failure_count = 0;
+                entry.disabled_reason = None;
+            } else {
+                entry.disabled_reason = Some(DisabledReason::Manual);
             }
         }
-        // 持久化更改
-        self.persist_credentials()?;
-        Ok(())
-    }
-
-    /// 设置凭证优先级（Admin API）
-    ///
-    /// 修改优先级后会立即按新优先级重新选择当前凭证。
-    /// 即使持久化失败，内存中的优先级和当前凭证选择也会生效。
-    pub fn set_priority(&self, id: u64, priority: u32) -> anyhow::Result<()> {
-        {
-            let mut entries = self.entries.lock();
-            let entry = entries
-                .iter_mut()
-                .find(|e| e.id == id)
-                .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?;
-            entry.credentials.priority = priority;
-        }
-        // 立即按新优先级重新选择当前凭证（无论持久化是否成功）
-        self.select_highest_priority();
         // 持久化更改
         self.persist_credentials()?;
         Ok(())
@@ -1188,6 +1226,7 @@ impl MultiTokenManager {
                 .ok_or_else(|| anyhow::anyhow!("凭证不存在: {}", id))?;
             entry.failure_count = 0;
             entry.disabled = false;
+            entry.disabled_reason = None;
         }
         // 持久化更改
         self.persist_credentials()?;
@@ -1392,7 +1431,6 @@ impl MultiTokenManager {
 
         // 5. 设置 ID 并保留用户输入的元数据
         validated_cred.id = Some(new_id);
-        validated_cred.priority = new_cred.priority;
         validated_cred.auth_method = new_cred.auth_method;
         validated_cred.client_id = new_cred.client_id;
         validated_cred.client_secret = new_cred.client_secret;
@@ -1404,6 +1442,7 @@ impl MultiTokenManager {
                 credentials: validated_cred,
                 failure_count: 0,
                 disabled: false,
+                disabled_reason: None,
             });
         }
 
@@ -1455,7 +1494,7 @@ impl MultiTokenManager {
 
         // 如果删除的是当前凭证，切换到优先级最高的可用凭证
         if was_current {
-            self.select_highest_priority();
+            self.select_smallest_id();
         }
 
         // 如果删除后没有任何凭证，将 current_id 重置为 0（与初始化行为保持一致）
@@ -1553,10 +1592,8 @@ mod tests {
     #[test]
     fn test_multi_token_manager_new() {
         let config = Config::default();
-        let mut cred1 = KiroCredentials::default();
-        cred1.priority = 0;
-        let mut cred2 = KiroCredentials::default();
-        cred2.priority = 1;
+        let cred1 = KiroCredentials::default();
+        let cred2 = KiroCredentials::default();
 
         let manager =
             MultiTokenManager::new(config, vec![cred1, cred2], None, None, false).unwrap();

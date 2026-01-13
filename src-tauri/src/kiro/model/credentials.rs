@@ -43,11 +43,6 @@ pub struct KiroCredentials {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
 
-    /// 凭证优先级（数字越小优先级越高，默认为 0）
-    #[serde(default)]
-    #[serde(skip_serializing_if = "is_zero")]
-    pub priority: u32,
-
     /// 用户邮箱（从 API 获取后缓存）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
@@ -103,11 +98,6 @@ fn is_normal_status(value: &String) -> bool {
     value == "normal"
 }
 
-/// 判断是否为零（用于跳过序列化）
-fn is_zero(value: &u32) -> bool {
-    *value == 0
-}
-
 /// 凭证配置（支持单对象或数组格式）
 ///
 /// 自动识别配置文件格式：
@@ -161,13 +151,13 @@ impl CredentialsConfig {
         Self::load(path)
     }
 
-    /// 转换为按优先级排序的凭证列表
+    /// 转换为按 ID 排序的凭证列表
     pub fn into_sorted_credentials(self) -> Vec<KiroCredentials> {
         match self {
             CredentialsConfig::Single(cred) => vec![cred],
             CredentialsConfig::Multiple(mut creds) => {
-                // 按优先级排序（数字越小优先级越高）
-                creds.sort_by_key(|c| c.priority);
+                // 按 ID 排序（ID 小的优先）
+                creds.sort_by_key(|c| c.id.unwrap_or(u64::MAX));
                 creds
             }
         }
@@ -266,7 +256,6 @@ mod tests {
             auth_method: Some("social".to_string()),
             client_id: None,
             client_secret: None,
-            priority: 0,
             email: None,
             subscription_title: None,
             current_usage: None,
@@ -281,8 +270,6 @@ mod tests {
         assert!(json.contains("accessToken"));
         assert!(json.contains("authMethod"));
         assert!(!json.contains("refreshToken"));
-        // priority 为 0 时不序列化
-        assert!(!json.contains("priority"));
     }
 
     #[test]
@@ -294,32 +281,10 @@ mod tests {
     }
 
     #[test]
-    fn test_priority_default() {
-        let json = r#"{"refreshToken": "test"}"#;
-        let creds = KiroCredentials::from_json(json).unwrap();
-        assert_eq!(creds.priority, 0);
-    }
-
-    #[test]
-    fn test_priority_explicit() {
-        let json = r#"{"refreshToken": "test", "priority": 5}"#;
-        let creds = KiroCredentials::from_json(json).unwrap();
-        assert_eq!(creds.priority, 5);
-    }
-
-    #[test]
-    fn test_credentials_config_single() {
-        let json = r#"{"refreshToken": "test", "expiresAt": "2025-12-31T00:00:00Z"}"#;
-        let config: CredentialsConfig = serde_json::from_str(json).unwrap();
-        assert!(matches!(config, CredentialsConfig::Single(_)));
-        assert_eq!(config.len(), 1);
-    }
-
-    #[test]
     fn test_credentials_config_multiple() {
         let json = r#"[
-            {"refreshToken": "test1", "priority": 1},
-            {"refreshToken": "test2", "priority": 0}
+            {"refreshToken": "test1", "id": 1},
+            {"refreshToken": "test2", "id": 2}
         ]"#;
         let config: CredentialsConfig = serde_json::from_str(json).unwrap();
         assert!(matches!(config, CredentialsConfig::Multiple(_)));
@@ -327,18 +292,18 @@ mod tests {
     }
 
     #[test]
-    fn test_credentials_config_priority_sorting() {
+    fn test_credentials_config_id_sorting() {
         let json = r#"[
-            {"refreshToken": "t1", "priority": 2},
-            {"refreshToken": "t2", "priority": 0},
-            {"refreshToken": "t3", "priority": 1}
+            {"refreshToken": "t1", "id": 3},
+            {"refreshToken": "t2", "id": 1},
+            {"refreshToken": "t3", "id": 2}
         ]"#;
         let config: CredentialsConfig = serde_json::from_str(json).unwrap();
         let list = config.into_sorted_credentials();
 
-        // 验证按优先级排序
-        assert_eq!(list[0].refresh_token, Some("t2".to_string())); // priority 0
-        assert_eq!(list[1].refresh_token, Some("t3".to_string())); // priority 1
-        assert_eq!(list[2].refresh_token, Some("t1".to_string())); // priority 2
+        // 验证按 ID 排序
+        assert_eq!(list[0].refresh_token, Some("t2".to_string())); // id 1
+        assert_eq!(list[1].refresh_token, Some("t3".to_string())); // id 2
+        assert_eq!(list[2].refresh_token, Some("t1".to_string())); // id 3
     }
 }

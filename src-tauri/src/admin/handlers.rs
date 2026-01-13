@@ -8,7 +8,7 @@ use axum::{
 
 use super::{
     middleware::AdminState,
-    types::{AddCredentialRequest, SetDisabledRequest, SetPriorityRequest, SuccessResponse},
+    types::{AddCredentialRequest, SetDisabledRequest, SuccessResponse},
 };
 
 /// GET /api/admin/credentials
@@ -30,23 +30,6 @@ pub async fn set_credential_disabled(
             let action = if payload.disabled { "禁用" } else { "启用" };
             Json(SuccessResponse::new(format!("凭证 #{} 已{}", id, action))).into_response()
         }
-        Err(e) => (e.status_code(), Json(e.into_response())).into_response(),
-    }
-}
-
-/// POST /api/admin/credentials/:id/priority
-/// 设置凭证优先级
-pub async fn set_credential_priority(
-    State(state): State<AdminState>,
-    Path(id): Path<u64>,
-    Json(payload): Json<SetPriorityRequest>,
-) -> impl IntoResponse {
-    match state.service.set_priority(id, payload.priority) {
-        Ok(_) => Json(SuccessResponse::new(format!(
-            "凭证 #{} 优先级已设置为 {}",
-            id, payload.priority
-        )))
-        .into_response(),
         Err(e) => (e.status_code(), Json(e.into_response())).into_response(),
     }
 }
@@ -717,7 +700,6 @@ pub async fn import_local_credential(
         auth_method: local_cred.auth_method.unwrap_or_else(|| "social".to_string()),
         client_id: None,
         client_secret: None,
-        priority: 0,
     };
     
     // 调用现有的添加逻辑
@@ -762,6 +744,34 @@ pub async fn switch_to_credential(
             let error = super::types::AdminErrorResponse::internal_error(format!("写入本地凭证失败: {}", e));
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(error)).into_response()
         }
+    }
+}
+
+/// POST /api/admin/credentials/switch-next
+/// 切换到下一个可用凭证（反代使用）
+pub async fn switch_to_next_credential(
+    State(state): State<AdminState>,
+) -> impl IntoResponse {
+    if state.token_manager.switch_to_next() {
+        // 获取新的当前凭证信息
+        let snapshot = state.service.get_all_credentials();
+        let current_id = snapshot.current_id;
+        let current_cred = snapshot.credentials.iter().find(|c| c.id == current_id);
+        
+        let msg = if let Some(cred) = current_cred {
+            format!("已切换到凭证 #{} ({})", current_id, cred.email.as_deref().unwrap_or("-"))
+        } else {
+            format!("已切换到凭证 #{}", current_id)
+        };
+        
+        Json(serde_json::json!({
+            "success": true,
+            "message": msg,
+            "currentId": current_id
+        })).into_response()
+    } else {
+        let error = super::types::AdminErrorResponse::invalid_request("没有可用的凭证可切换");
+        (axum::http::StatusCode::BAD_REQUEST, Json(error)).into_response()
     }
 }
 

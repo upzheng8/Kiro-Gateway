@@ -13,7 +13,9 @@
       {
         "title": "Kiro Gateway",
         "width": 1000,
-        "height": 640
+        "height": 640,
+        "minWidth": 900,
+        "minHeight": 500
       }
     ],
     "withGlobalTauri": true,

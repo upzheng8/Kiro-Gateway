@@ -2,20 +2,20 @@
 
 use axum::{
     Router,
-    routing::{delete, get, post, put},
+    routing::{delete, get, post},
 };
 
 use super::{
     handlers::{
         add_credential, delete_credential, get_all_credentials, get_credential_balance,
-        reset_failure_count, set_credential_disabled, set_credential_priority, import_credentials,
+        reset_failure_count, set_credential_disabled, import_credentials,
         get_logs, clear_logs, get_config, update_config,
         // 新增 handlers
         get_machine_id, backup_machine_id, restore_machine_id, reset_machine_id,
         batch_delete_credentials, export_credentials,
         get_locked_model, set_locked_model,
         // 本地账号
-        get_local_credential, import_local_credential, switch_to_credential,
+        get_local_credential, import_local_credential, switch_to_credential, switch_to_next_credential,
         // 刷新凭证
         refresh_credential, refresh_all_credentials,
         // 分组管理
@@ -40,7 +40,6 @@ use super::{
 /// - `DELETE /credentials/batch` - 批量删除凭证
 /// - `POST /credentials/export` - 导出凭证
 /// - `POST /credentials/:id/disabled` - 设置凭证禁用状态
-/// - `POST /credentials/:id/priority` - 设置凭证优先级
 /// - `POST /credentials/:id/reset` - 重置失败计数
 /// - `POST /credentials/:id/switch` - 切换到该账号
 /// - `GET /credentials/:id/balance` - 获取凭证余额
@@ -67,13 +66,13 @@ pub fn create_admin_router(state: AdminState) -> Router {
         )
         .route("/credentials/import", post(import_credentials))
         .route("/credentials/refresh-all", post(refresh_all_credentials))
+        .route("/credentials/switch-next", post(switch_to_next_credential))
         .route("/credentials/local", get(get_local_credential))
         .route("/credentials/import-local", post(import_local_credential))
         .route("/credentials/batch", delete(batch_delete_credentials))
         .route("/credentials/export", post(export_credentials))
         .route("/credentials/{id}", delete(delete_credential))
         .route("/credentials/{id}/disabled", post(set_credential_disabled))
-        .route("/credentials/{id}/priority", post(set_credential_priority))
         .route("/credentials/{id}/reset", post(reset_failure_count))
         .route("/credentials/{id}/switch", post(switch_to_credential))
         .route("/credentials/{id}/balance", get(get_credential_balance))

@@ -81,3 +81,35 @@
 .animate-shake-periodic {
   animation: shake-periodic 10s ease-in-out infinite;
 }
+
+/* 自定义滚动条样式 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* 深色模式滚动条 */
+.dark ::-webkit-scrollbar-thumb {
+  background: hsl(217 20% 30%);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: hsl(217 20% 40%);
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: transparent;
+}

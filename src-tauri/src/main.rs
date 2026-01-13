@@ -18,7 +18,9 @@ use clap::Parser;
 use std::path::PathBuf;
 use std::sync::Arc;
 use model::arg::Args;
-use tauri::Manager;
+use tauri::{Manager, WindowEvent};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
 use tokio::sync::{Mutex, watch};
 
 #[derive(Parser, Debug)]
@@ -236,6 +238,49 @@ fn main() {
             #[cfg(debug_assertions)]
             window.open_devtools();
             
+            // 创建系统托盘菜单
+            let show_item = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            
+            // 创建系统托盘
+            let tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .tooltip("Kiro Gateway")
+                .on_menu_event(|app, event| {
+                    match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    // 左键单击时显示窗口
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        if let Some(window) = tray.app_handle().get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+            
+            // 保存托盘引用
+            app.manage(tray);
+            
             // 自动启动 Admin API 服务器（不包含反代）
             let server_state: tauri::State<ServerState> = app.state();
             let config_path = server_state.config_path.clone();
@@ -255,6 +300,13 @@ fn main() {
             });
             
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // 拦截关闭事件，改为隐藏到托盘
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
+            }
         })
         .run(tauri::generate_context!("tauri.conf.json"))
         .expect("error while running tauri application");

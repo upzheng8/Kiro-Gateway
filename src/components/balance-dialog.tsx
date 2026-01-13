@@ -151,6 +151,36 @@ export function BalanceDialog({ credential, open, onOpenChange }: BalanceDialogP
                 </div>
               )}
             </div>
+
+            {/* 复制 JSON 按钮 */}
+            <div className="pt-3 border-t">
+              <button
+                onClick={() => {
+                  const json = JSON.stringify({
+                    accessToken: credential.accessToken || '',
+                    refreshToken: credential.refreshToken || '',
+                    profileArn: credential.profileArn || '',
+                    expiresAt: credential.expiresAt || '',
+                    authMethod: 'social',
+                    provider: 'Google',
+                  }, null, 2)
+                  handleCopy(json, 'json')
+                }}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm bg-muted hover:bg-muted/80 rounded-md transition-colors"
+              >
+                {copied === 'json' ? (
+                  <>
+                    <Check className="h-4 w-4 text-green-500" />
+                    <span>已复制</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-4 w-4" />
+                    <span>复制 JSON</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         ) : (
           <div className="py-6 text-center text-muted-foreground">

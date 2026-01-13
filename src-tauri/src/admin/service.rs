@@ -32,7 +32,6 @@ impl AdminService {
             .into_iter()
             .map(|entry| CredentialStatusItem {
                 id: entry.id,
-                priority: entry.priority,
                 disabled: entry.disabled,
                 failure_count: entry.failure_count,
                 is_current: entry.id == snapshot.current_id,
@@ -53,8 +52,8 @@ impl AdminService {
             })
             .collect();
 
-        // 按优先级排序（数字越小优先级越高）
-        credentials.sort_by_key(|c| c.priority);
+        // 按 ID 排序（ID 小的优先）
+        credentials.sort_by_key(|c| c.id);
 
         // 读取本地 Kiro 客户端的 Refresh Token
         let local_refresh_token = super::local_account::read_local_credential()
@@ -93,13 +92,6 @@ impl AdminService {
             let _ = self.token_manager.switch_to_next();
         }
         Ok(())
-    }
-
-    /// 设置凭证优先级
-    pub fn set_priority(&self, id: u64, priority: u32) -> Result<(), AdminServiceError> {
-        self.token_manager
-            .set_priority(id, priority)
-            .map_err(|e| self.classify_error(e, id))
     }
 
     /// 重置失败计数并重新启用
@@ -244,32 +236,10 @@ impl AdminService {
     }
 
     /// 添加新凭证
-    ///
-    /// 如果未指定优先级（默认为 0），则自动分配下一个可用优先级
     pub async fn add_credential(
         &self,
         req: AddCredentialRequest,
     ) -> Result<AddCredentialResponse, AdminServiceError> {
-        // 如果优先级为 0，自动分配下一个优先级
-        let priority = if req.priority == 0 {
-            let snapshot = self.token_manager.snapshot();
-            if snapshot.entries.is_empty() {
-                // 没有现有凭证时，从 0 开始
-                0
-            } else {
-                // 有现有凭证时，使用 max+1
-                snapshot
-                    .entries
-                    .iter()
-                    .map(|e| e.priority)
-                    .max()
-                    .unwrap_or(0)
-                    + 1
-            }
-        } else {
-            req.priority
-        };
-
         // 构建凭证对象
         let new_cred = KiroCredentials {
             id: None,
@@ -280,7 +250,6 @@ impl AdminService {
             auth_method: Some(req.auth_method),
             client_id: req.client_id,
             client_secret: req.client_secret,
-            priority,
             email: None,
             subscription_title: None,
             current_usage: None,
@@ -306,41 +275,14 @@ impl AdminService {
     }
 
     /// 批量导入凭证
-    ///
-    /// 如果凭证未指定优先级（默认为 0），则自动按顺序分配优先级
     pub async fn import_credentials(
         &self,
         items: Vec<super::types::ImportCredentialItem>,
     ) -> Result<super::types::ImportCredentialsResponse, AdminServiceError> {
         let mut imported_ids = Vec::new();
-        let mut skipped = 0;
-
-        // 获取当前最大优先级，用于分配递增优先级
-        let snapshot = self.token_manager.snapshot();
-        let mut next_priority = if snapshot.entries.is_empty() {
-            // 没有现有凭证时，从 0 开始
-            0
-        } else {
-            // 有现有凭证时，从 max+1 开始
-            snapshot
-                .entries
-                .iter()
-                .map(|e| e.priority)
-                .max()
-                .unwrap_or(0)
-                + 1
-        };
+        let mut skipped_reasons: Vec<String> = Vec::new();
 
         for item in items {
-            // 如果优先级为 0（默认值），则自动分配递增优先级
-            let priority = if item.priority == 0 {
-                let assigned = next_priority;
-                next_priority += 1;
-                assigned
-            } else {
-                item.priority
-            };
-
             // 构建凭证对象
             let new_cred = KiroCredentials {
                 id: None,
@@ -351,7 +293,6 @@ impl AdminService {
                 auth_method: Some(item.auth_method),
                 client_id: item.client_id,
                 client_secret: item.client_secret,
-                priority: priority,
                 email: None,
                 subscription_title: None,
                 current_usage: None,
@@ -368,15 +309,17 @@ impl AdminService {
                     imported_ids.push(id);
                 }
                 Err(e) => {
-                    tracing::warn!("导入凭证失败，已跳过: {}", e);
-                    skipped += 1;
+                    let reason = e.to_string();
+                    tracing::warn!("导入凭证失败，已跳过: {}", reason);
+                    skipped_reasons.push(reason);
                 }
             }
         }
 
         let imported_count = imported_ids.len();
-        let message = if skipped > 0 {
-            format!("成功导入 {} 个凭证，跳过 {} 个无效凭证", imported_count, skipped)
+        let skipped_count = skipped_reasons.len();
+        let message = if skipped_count > 0 {
+            format!("成功导入 {} 个凭证，跳过 {} 个无效凭证", imported_count, skipped_count)
         } else {
             format!("成功导入 {} 个凭证", imported_count)
         };
@@ -385,8 +328,9 @@ impl AdminService {
             success: true,
             message,
             imported_count,
-            skipped_count: skipped,
+            skipped_count,
             credential_ids: imported_ids,
+            skipped_reasons,
         })
     }
 
@@ -397,7 +341,7 @@ impl AdminService {
             .map_err(|e| self.classify_delete_error(e, id))
     }
 
-    /// 分类简单操作错误（set_disabled, set_priority, reset_and_enable）
+    /// 分类简单操作错误（set_disabled, reset_and_enable）
     fn classify_error(&self, e: anyhow::Error, id: u64) -> AdminServiceError {
         let msg = e.to_string();
         if msg.contains("不存在") {

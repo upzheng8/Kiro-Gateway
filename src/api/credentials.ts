@@ -4,7 +4,6 @@ import type {
   BalanceResponse,
   SuccessResponse,
   SetDisabledRequest,
-  SetPriorityRequest,
   AddCredentialRequest,
   AddCredentialResponse,
 } from "@/types/api";
@@ -34,18 +33,6 @@ export async function setCredentialDisabled(
   const { data } = await api.post<SuccessResponse>(
     `/credentials/${id}/disabled`,
     { disabled } as SetDisabledRequest
-  );
-  return data;
-}
-
-// 设置凭证优先级
-export async function setCredentialPriority(
-  id: number,
-  priority: number
-): Promise<SuccessResponse> {
-  const { data } = await api.post<SuccessResponse>(
-    `/credentials/${id}/priority`,
-    { priority } as SetPriorityRequest
   );
   return data;
 }
@@ -132,7 +119,6 @@ export interface ImportCredentialItem {
   authMethod?: string;
   clientId?: string;
   clientSecret?: string;
-  priority?: number;
   groupId?: string;
 }
 
@@ -142,6 +128,7 @@ export interface ImportCredentialsResponse {
   importedCount: number;
   skippedCount: number;
   credentialIds: number[];
+  skippedReasons: string[];
 }
 
 export async function importCredentials(
@@ -355,6 +342,20 @@ export async function switchToCredential(
 ): Promise<SuccessResponse> {
   const { data } = await api.post<SuccessResponse>(
     `/credentials/${id}/switch`
+  );
+  return data;
+}
+
+// 切换到下一个可用凭证（反代使用）
+export interface SwitchNextResponse {
+  success: boolean;
+  message: string;
+  currentId: number;
+}
+
+export async function switchToNextCredential(): Promise<SwitchNextResponse> {
+  const { data } = await api.post<SwitchNextResponse>(
+    `/credentials/switch-next`
   );
   return data;
 }

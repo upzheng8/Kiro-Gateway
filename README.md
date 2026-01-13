@@ -119,16 +119,14 @@ npm run tauri build
   {
     "refreshToken": "第一个凭证的刷新token",
     "expiresAt": "2025-12-31T02:32:45.144Z",
-    "authMethod": "social",
-    "priority": 0
+    "authMethod": "social"
   },
   {
     "refreshToken": "第二个凭证的刷新token",
     "expiresAt": "2025-12-31T02:32:45.144Z",
     "authMethod": "idc",
     "clientId": "xxxxxxxxx",
-    "clientSecret": "xxxxxxxxx",
-    "priority": 1
+    "clientSecret": "xxxxxxxxx"
   }
 ]
 ```
@@ -145,7 +143,7 @@ npm run tauri build
 
 > **多凭证特性说明**：
 >
-> - 按 `priority` 字段排序，数字越小优先级越高（默认为 0）
+> - 按 `id` 字段排序，数字越小优先级越高
 > - 单凭证最多重试 3 次，单请求最多重试 9 次
 > - 自动故障转移到下一个可用凭证
 > - Token 刷新后自动回写到源文件
