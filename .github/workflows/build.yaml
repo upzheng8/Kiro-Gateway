@@ -41,25 +41,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 清理磁盘空间 (Linux/macOS)
-      - name: Free disk space (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo docker image prune --all --force
-          df -h
-
-      - name: Free disk space (macOS)
-        if: matrix.platform == 'macos-latest'
-        run: |
-          sudo rm -rf ~/Library/Caches/*
-          sudo rm -rf /Users/runner/Library/Android
-          df -h
-
-      # Tauri v2 Linux 必须依赖
+      # Tauri v2 Linux 依赖
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -72,59 +54,20 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      # 智能安装 Rust (macOS 需要同时安装两个 targets 进行交叉编译)
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      # 暂时禁用 Rust 缓存以排除缓存问题
-      # - name: Rust cache
-      #   uses: swatinem/rust-cache@v2
-      #   with:
-      #     workspaces: "./src-tauri -> target"
-      #     prefix-key: "v7-${{ matrix.platform }}-${{ matrix.target }}"
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          prefix-key: "v8-${{ matrix.platform }}-${{ matrix.target }}"
 
-      # 安装前端依赖
       - name: Install dependencies
         run: npm ci
 
-      # 删除 Cargo.lock 并重新生成，确保跨平台依赖一致
-      - name: Regenerate Cargo.lock (Unix)
-        if: matrix.platform != 'windows-latest'
-        run: |
-          rm -f Cargo.lock
-          cargo generate-lockfile
-        working-directory: ./src-tauri
-
-      - name: Regenerate Cargo.lock (Windows)
-        if: matrix.platform == 'windows-latest'
-        run: |
-          if (Test-Path Cargo.lock) { Remove-Item Cargo.lock -Force }
-          cargo generate-lockfile
-        working-directory: ./src-tauri
-        shell: pwsh
-
-      # 显示依赖版本用于调试
-      - name: Show tauri versions
-        run: |
-          echo "=== Cargo.lock tauri versions ==="
-          grep -A1 'name = "tauri"' Cargo.lock || true
-          grep -A1 'name = "tauri-build"' Cargo.lock || true
-          grep -A1 'name = "tauri-utils"' Cargo.lock || true
-        working-directory: ./src-tauri
-
-      # 先单独编译 tauri 依赖，查看详细错误
-      - name: Build tauri dependencies
-        run: |
-          echo "=== Building tauri crate ==="
-          cargo build -p tauri --verbose 2>&1 || true
-          echo "=== Build script output ==="
-          find target -name "output" -path "*/tauri-*/output" -exec cat {} \; 2>/dev/null || true
-        working-directory: ./src-tauri
-        if: matrix.platform != 'windows-latest'
-
-      # 使用官方 tauri-action 构建
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -134,8 +77,6 @@ jobs:
           tauriScript: npm run tauri
           args: --verbose ${{ matrix.args }} --bundles ${{ matrix.bundles }}
 
-      # 统一上传逻辑
-      # Windows 负责更新 Release 说明文案
       - name: Upload Release (Windows)
         if: matrix.platform == 'windows-latest' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -145,9 +86,6 @@ jobs:
           prerelease: false
           body: |
             ## 🚀 Kiro Gateway ${{ github.ref_name }} 发布
-
-            ### 更新内容
-            1. 重构 z-kiro, 新增反代功能
 
             ### 下载说明
             | 平台 | 文件名 | 说明 |
@@ -159,7 +97,6 @@ jobs:
 
           files: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
 
-      # macOS 和 Linux 只负责传文件，不覆盖 body
       - name: Upload Release (Others)
         if: matrix.platform != 'windows-latest' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
