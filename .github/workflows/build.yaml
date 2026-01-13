@@ -54,18 +54,19 @@ jobs:
           node-version: "20"
           cache: "npm"
 
-      # 智能安装 Rust (自动添加对应的 target)
+      # 智能安装 Rust (macOS 需要同时安装两个 targets 进行交叉编译)
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          # 只有 macOS 需要安装交叉编译 targets，Linux/Windows 使用 host target 即可
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      # Rust 缓存加速 - 添加前缀强制刷新缓存
+      # Rust 缓存加速 - 使用平台和 target 组合的 key
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
-          prefix-key: "v3"
+          prefix-key: "v5-${{ matrix.platform }}-${{ matrix.target }}"
 
       # 安装前端依赖
       - name: Install dependencies

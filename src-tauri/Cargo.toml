@@ -43,7 +43,7 @@ winreg = "0.55"       # Windows 注册表访问
 crossbeam-channel = "0.5" # For thread communication
 
 # Tauri Dependencies
-tauri = { version = "2.0", features = [] }
+tauri = { version = "2.0", features = ["devtools"] }
 tauri-plugin-shell = "2"
 
 
