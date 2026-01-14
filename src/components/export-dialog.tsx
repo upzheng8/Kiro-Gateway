@@ -35,34 +35,57 @@ export function ExportDialog({ open, onOpenChange, selectedIds }: ExportDialogPr
       
       const credentials = result.credentials || []
       
-      // 生成时间戳 yyyy-MM-dd HH：mm：ss（使用中文冒号避免文件名限制）
+      // 生成时间戳 yyyy-MM-dd HH-mm-ss（使用连字符避免文件名限制）
       const now = new Date()
       const pad = (n: number) => n.toString().padStart(2, '0')
-      const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}：${pad(now.getMinutes())}：${pad(now.getSeconds())}`
+      const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`
       
       let content: string
       let defaultFilename: string
+      let filterName: string
+      let filterExtensions: string[]
       
       if (format === 'json') {
         content = JSON.stringify(credentials, null, 2)
-        defaultFilename = `Kiro Gateway${credentials.length} ${timestamp}.json`
+        defaultFilename = `Kiro Gateway ${credentials.length} ${timestamp}.json`
+        filterName = 'JSON 文件'
+        filterExtensions = ['json']
       } else {
         content = credentials.map((c: any) => c.refreshToken).join('\n')
-        defaultFilename = `Kiro Gateway${credentials.length} ${timestamp}.txt`
+        defaultFilename = `Kiro Gateway ${credentials.length} ${timestamp}.txt`
+        filterName = '文本文件'
+        filterExtensions = ['txt']
       }
       
-      // 使用浏览器下载
-      const mimeType = format === 'json' ? 'application/json' : 'text/plain'
-      const blob = new Blob([content], { type: mimeType })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = defaultFilename
-      a.click()
-      URL.revokeObjectURL(url)
-      
-      toast.success(`已导出 ${result.count} 个凭证`)
-      onOpenChange(false)
+      // 使用 Tauri 保存文件对话框
+      try {
+        const { invoke } = (window as any).__TAURI__.core
+        const saved = await invoke('save_file', {
+          content,
+          defaultName: defaultFilename,
+          filterName,
+          filterExtensions,
+        })
+        
+        if (saved) {
+          toast.success(`已导出 ${result.count} 个凭证`)
+          onOpenChange(false)
+        }
+        // 用户取消则不做任何操作
+      } catch (e) {
+        console.error('Tauri save_file 失败:', e)
+        // fallback 到浏览器下载
+        const mimeType = format === 'json' ? 'application/json' : 'text/plain'
+        const blob = new Blob([content], { type: mimeType })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = defaultFilename
+        a.click()
+        URL.revokeObjectURL(url)
+        toast.success(`已导出 ${result.count} 个凭证`)
+        onOpenChange(false)
+      }
     } catch (e: any) {
       toast.error(`导出失败: ${e.response?.data?.error?.message || e.message}`)
     } finally {

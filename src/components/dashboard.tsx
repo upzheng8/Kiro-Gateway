@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { RefreshCw, Moon, Sun, Plus, Terminal, Save, Trash2, ToggleLeft, ToggleRight, Ghost, Eye, Info, Download, ChevronLeft, ChevronRight, ChevronDown, FolderOpen, FolderInput, Key, Network, QrCode, Settings2, Globe, ShoppingCart, Search, X, FileText } from 'lucide-react'
+import { RefreshCw, Moon, Sun, Plus, Terminal, Save, Trash2, ToggleLeft, ToggleRight, Ghost, Eye, Info, Download, ChevronLeft, ChevronRight, ChevronDown, FolderOpen, FolderInput, Key, Network, QrCode, Settings, Globe, ShoppingCart, Search, X, FileText } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -269,6 +269,16 @@ export function Dashboard(_props: DashboardProps) {
         } catch (err) {
           console.error('加载机器码失败:', err)
           setCurrentMachineId('加载失败')
+        }
+        
+        // 加载数据目录路径
+        try {
+          const { invoke } = (window as any).__TAURI__.core
+          const dataDir = await invoke('get_data_dir')
+          const input = document.getElementById('data-dir-path') as HTMLInputElement
+          if (input) input.value = dataDir
+        } catch (err) {
+          console.error('加载数据目录失败:', err)
         }
       } catch (e) {
         // 忽略错误，使用默认值
@@ -659,7 +669,7 @@ export function Dashboard(_props: DashboardProps) {
             </div>
           </div>
            <NavItem
-            icon={<Settings2 className="h-4 w-4" />}
+            icon={<Settings className="h-4 w-4" />}
             label="系统设置"
             active={activeTab === 'system'}
             onClick={() => setActiveTab('system')}
@@ -1626,7 +1636,7 @@ export function Dashboard(_props: DashboardProps) {
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <RefreshCw className="h-4 w-4" />
-                    自动刷新设置
+                    自动刷新
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -1820,6 +1830,51 @@ export function Dashboard(_props: DashboardProps) {
                       onClick={() => setResetMachineIdConfirmOpen(true)}
                     >
                       重置机器码
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <FolderOpen className="h-4 w-4" />
+                    数据目录
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="text-xs text-muted-foreground">
+                    配置文件和凭证数据存储位置
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      id="data-dir-path"
+                      className="flex-1 px-3 py-2 bg-muted border border-border rounded-md text-xs font-mono cursor-pointer"
+                      placeholder="加载中..."
+                      onClick={async (e) => {
+                        const input = e.target as HTMLInputElement
+                        if (input.value) {
+                          await navigator.clipboard.writeText(input.value)
+                          toast.success('已复制路径到剪贴板')
+                        }
+                      }}
+                    />
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          const { invoke } = (window as any).__TAURI__.core
+                          await invoke('open_data_dir')
+                        } catch (e) {
+                          console.error('打开目录失败:', e)
+                          toast.error('打开目录失败')
+                        }
+                      }}
+                    >
+                      打开
                     </Button>
                   </div>
                 </CardContent>

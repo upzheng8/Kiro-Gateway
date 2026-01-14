@@ -185,6 +185,45 @@ fn open_url(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| format!("打开链接失败: {}", e))
 }
 
+/// 保存文件（弹出文件保存对话框）
+#[tauri::command]
+async fn save_file(content: String, default_name: String, filter_name: String, filter_extensions: Vec<String>) -> Result<bool, String> {
+    use std::io::Write;
+    
+    let extensions: Vec<&str> = filter_extensions.iter().map(|s| s.as_str()).collect();
+    
+    let file_handle = rfd::AsyncFileDialog::new()
+        .set_title("保存文件")
+        .set_file_name(&default_name)
+        .add_filter(&filter_name, &extensions)
+        .save_file()
+        .await;
+    
+    match file_handle {
+        Some(handle) => {
+            let path = handle.path();
+            std::fs::File::create(path)
+                .and_then(|mut file| file.write_all(content.as_bytes()))
+                .map_err(|e| format!("保存文件失败: {}", e))?;
+            Ok(true)
+        }
+        None => Ok(false) // 用户取消
+    }
+}
+
+/// 获取数据目录路径
+#[tauri::command]
+fn get_data_dir() -> String {
+    get_config_dir().to_string_lossy().to_string()
+}
+
+/// 打开数据目录
+#[tauri::command]
+fn open_data_dir() -> Result<(), String> {
+    let dir = get_config_dir();
+    open::that(&dir).map_err(|e| format!("打开目录失败: {}", e))
+}
+
 fn main() {
     // 初始化日志
     tracing_subscriber::fmt()
@@ -237,6 +276,9 @@ fn main() {
             start_proxy_server,
             stop_proxy_server,
             open_url,
+            save_file,
+            get_data_dir,
+            open_data_dir,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
