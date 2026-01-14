@@ -158,6 +158,7 @@ export function Dashboard(_props: DashboardProps) {
   const [selectedModel, setSelectedModel] = useState('')
   const [currentMachineId, setCurrentMachineId] = useState('')
   const [backupMachineId, setBackupMachineId] = useState<{ machineId: string, backupTime: string } | null>(null)
+  const [dataDir, setDataDir] = useState('')
 
   // 更新弹窗状态
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
@@ -274,11 +275,11 @@ export function Dashboard(_props: DashboardProps) {
         // 加载数据目录路径
         try {
           const { invoke } = (window as any).__TAURI__.core
-          const dataDir = await invoke('get_data_dir')
-          const input = document.getElementById('data-dir-path') as HTMLInputElement
-          if (input) input.value = dataDir
+          const dir = await invoke('get_data_dir')
+          setDataDir(dir)
         } catch (err) {
           console.error('加载数据目录失败:', err)
+          setDataDir('加载失败')
         }
       } catch (e) {
         // 忽略错误，使用默认值
@@ -1850,13 +1851,11 @@ export function Dashboard(_props: DashboardProps) {
                     <input
                       type="text"
                       readOnly
-                      id="data-dir-path"
+                      value={dataDir || '加载中...'}
                       className="flex-1 px-3 py-2 bg-muted border border-border rounded-md text-xs font-mono cursor-pointer"
-                      placeholder="加载中..."
-                      onClick={async (e) => {
-                        const input = e.target as HTMLInputElement
-                        if (input.value) {
-                          await navigator.clipboard.writeText(input.value)
+                      onClick={async () => {
+                        if (dataDir) {
+                          await navigator.clipboard.writeText(dataDir)
                           toast.success('已复制路径到剪贴板')
                         }
                       }}
