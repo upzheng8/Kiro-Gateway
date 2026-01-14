@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { RefreshCw, Moon, Sun, Server, Plus, Terminal, Save, Trash2, ToggleLeft, ToggleRight, Ghost, Eye, Info, Download, ChevronLeft, ChevronRight, ChevronDown, FolderOpen, FolderInput, Key, Network, QrCode, Settings2, Globe, ShoppingCart, Search, X, FileText } from 'lucide-react'
+import { RefreshCw, Moon, Sun, Plus, Terminal, Save, Trash2, ToggleLeft, ToggleRight, Ghost, Eye, Info, Download, ChevronLeft, ChevronRight, ChevronDown, FolderOpen, FolderInput, Key, Network, QrCode, Settings2, Globe, ShoppingCart, Search, X, FileText } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
