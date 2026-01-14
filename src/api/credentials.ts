@@ -464,7 +464,7 @@ export async function checkUpdate(): Promise<{
   
   // 从 GitHub Releases 获取最新版本
   const response = await fetch(
-    'https://api.github.com/repos/Zheng-up/Kiro-Gateway/releases/latest'
+    'https://api.github.com/repos/Zheng-up/KiroGateway-release/releases/latest'
   );
   
   if (!response.ok) {

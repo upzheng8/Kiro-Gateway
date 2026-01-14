@@ -179,6 +179,12 @@ async fn stop_proxy_server(state: tauri::State<'_, ServerState>) -> Result<Strin
     Ok("服务器已停止".to_string())
 }
 
+/// 打开外部 URL
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    open::that(&url).map_err(|e| format!("打开链接失败: {}", e))
+}
+
 fn main() {
     // 初始化日志
     tracing_subscriber::fmt()
@@ -230,6 +236,7 @@ fn main() {
             get_server_status,
             start_proxy_server,
             stop_proxy_server,
+            open_url,
         ])
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();

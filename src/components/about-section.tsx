@@ -97,50 +97,70 @@ export function AboutSection() {
         <CardContent className="space-y-3">
           {/* GitHub 和 使用文档 */}
           <div className="flex gap-3">
-            <a 
-              href="https://github.com/Zheng-up/Kiro-Gateway/releases" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex-1 flex items-center justify-center gap-2 h-10 bg-gray-900 dark:bg-gray-800 hover:bg-gray-800 dark:hover:bg-gray-700 rounded-lg transition-colors group"
+            <button 
+              onClick={async () => {
+                try {
+                  const { invoke } = (window as any).__TAURI__.core
+                  await invoke('open_url', { url: 'https://github.com/Zheng-up/KiroGateway-release/releases' })
+                } catch (e) {
+                  console.error('打开链接失败:', e)
+                }
+              }}
+              className="flex-1 flex items-center justify-center gap-2 h-10 bg-gray-900 dark:bg-gray-800 hover:bg-gray-800 dark:hover:bg-gray-700 rounded-lg transition-colors group cursor-pointer"
             >
               <Github className="h-4 w-4 text-white" />
               <span className="text-white text-xs font-medium">GitHub 发布</span>
               <ExternalLink className="h-3 w-3 text-white/50 group-hover:text-white" />
-            </a>
-            <a 
-              href="https://docs.qq.com/aio/DT0ZvQm1kc2ZYZUZO" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex-1 flex items-center justify-center gap-2 h-10 bg-green-600 hover:bg-green-500 rounded-lg transition-colors group"
+            </button>
+            <button 
+              onClick={async () => {
+                try {
+                  const { invoke } = (window as any).__TAURI__.core
+                  await invoke('open_url', { url: 'https://docs.qq.com/aio/DT0ZvQm1kc2ZYZUZO' })
+                } catch (e) {
+                  console.error('打开链接失败:', e)
+                }
+              }}
+              className="flex-1 flex items-center justify-center gap-2 h-10 bg-green-600 hover:bg-green-500 rounded-lg transition-colors group cursor-pointer"
             >
               <BookOpen className="h-4 w-4 text-white" />
               <span className="text-white text-xs font-medium">使用文档</span>
               <ExternalLink className="h-3 w-3 text-white/50 group-hover:text-white" />
-            </a>
+            </button>
           </div>
           
           {/* QQ 群 */}
           <div className="flex gap-3">
-            <a 
-              href="https://qm.qq.com/q/PoZMrdXTeA" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex-1 flex items-center justify-center gap-2 h-10 bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors group"
+            <button 
+              onClick={async () => {
+                try {
+                  const { invoke } = (window as any).__TAURI__.core
+                  await invoke('open_url', { url: 'https://qm.qq.com/q/PoZMrdXTeA' })
+                } catch (e) {
+                  console.error('打开链接失败:', e)
+                }
+              }}
+              className="flex-1 flex items-center justify-center gap-2 h-10 bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors group cursor-pointer"
             >
               <MessageCircle className="h-4 w-4 text-white" />
               <span className="text-white text-xs font-medium">QQ一群 1041545996</span>
               <ExternalLink className="h-3 w-3 text-white/50 group-hover:text-white" />
-            </a>
-            <a 
-              href="https://qm.qq.com/q/p9Q6VT9tFm" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex-1 flex items-center justify-center gap-2 h-10 bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors group"
+            </button>
+            <button 
+              onClick={async () => {
+                try {
+                  const { invoke } = (window as any).__TAURI__.core
+                  await invoke('open_url', { url: 'https://qm.qq.com/q/p9Q6VT9tFm' })
+                } catch (e) {
+                  console.error('打开链接失败:', e)
+                }
+              }}
+              className="flex-1 flex items-center justify-center gap-2 h-10 bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors group cursor-pointer"
             >
               <MessageCircle className="h-4 w-4 text-white" />
               <span className="text-white text-xs font-medium">QQ二群 704127070</span>
               <ExternalLink className="h-3 w-3 text-white/50 group-hover:text-white" />
-            </a>
+            </button>
           </div>
         </CardContent>
       </Card>

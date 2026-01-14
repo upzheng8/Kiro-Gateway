@@ -7,16 +7,22 @@ import {
 import { Button } from '@/components/ui/button'
 import { Download, ExternalLink } from 'lucide-react'
 
-// 使用 Tauri 的 shell API 打开外部链接
+// 使用 Tauri invoke 打开外部链接
 const openExternal = async (url: string) => {
   try {
-    // Tauri 2.0 with withGlobalTauri: true
-    const { open } = await (window as any).__TAURI__.shell
-    await open(url)
+    const { invoke } = (window as any).__TAURI__.core
+    await invoke('open_url', { url })
   } catch (e) {
-    // Fallback to window.open
-    window.open(url, '_blank')
+    console.error('打开链接失败:', e)
   }
+}
+
+// 过滤掉下载说明部分
+const filterReleaseBody = (body: string): string => {
+  // 移除 "### 下载说明" 及其后面的表格内容
+  return body
+    .replace(/###\s*下载说明[\s\S]*?(?=\n##|\n###|$)/gi, '')
+    .trim()
 }
 
 interface UpdateDialogProps {
@@ -43,6 +49,9 @@ export function UpdateDialog({
     month: 'long',
     day: 'numeric',
   })
+
+  // 过滤后的更新内容
+  const filteredBody = filterReleaseBody(releaseBody)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -78,7 +87,7 @@ export function UpdateDialog({
               <div 
                 className="text-sm text-muted-foreground prose prose-sm dark:prose-invert max-w-none"
                 dangerouslySetInnerHTML={{ 
-                  __html: releaseBody
+                  __html: filteredBody
                     .replace(/\n/g, '<br>')
                     .replace(/^- /gm, '• ')
                     .replace(/^## (.+)$/gm, '<strong>$1</strong>')

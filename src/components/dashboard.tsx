@@ -55,23 +55,27 @@ function NavItem({
   label,
   active,
   onClick,
+  collapsed = false,
 }: {
   icon: React.ReactNode
   label: string
   active: boolean
   onClick: () => void
+  collapsed?: boolean
 }) {
   return (
     <button
       onClick={onClick}
+      title={collapsed ? label : undefined}
       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
+        ${collapsed ? 'justify-center' : ''}
         ${active 
           ? 'bg-primary text-primary-foreground' 
           : 'text-muted-foreground hover:text-foreground hover:bg-muted'
         }`}
     >
       {icon}
-      {label}
+      {!collapsed && label}
     </button>
   )
 }
@@ -133,6 +137,7 @@ export function Dashboard(_props: DashboardProps) {
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
   const [selectedGroupId, setSelectedGroupId] = useState<string>('default')
   const [groupsExpanded, setGroupsExpanded] = useState(true)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [addGroupDialogOpen, setAddGroupDialogOpen] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
   const [moveGroupDialogOpen, setMoveGroupDialogOpen] = useState(false)
@@ -534,46 +539,68 @@ export function Dashboard(_props: DashboardProps) {
   return (
     <div className="h-screen flex bg-background overflow-hidden">
       {/* 左侧侧边栏 */}
-      <aside className="w-45 border-r bg-muted/30 flex flex-col">
+      <aside 
+        className={`border-r bg-muted/30 flex flex-col select-none overflow-x-hidden overflow-y-auto whitespace-nowrap`}
+        style={{ 
+          width: sidebarCollapsed ? '56px' : '180px',
+          transition: 'width 0.2s ease-in-out'
+        }}
+      >
         {/* Logo */}
-        <div className="h-14 flex items-center gap-2 px-4 border-b">
-          <Server className="h-5 w-5 text-primary" />
-          <span className="font-semibold">Kiro Gateway</span>
+        <div 
+          className={`h-14 flex items-center gap-2 ${sidebarCollapsed ? 'justify-center px-2' : 'px-4'} border-b cursor-pointer hover:bg-muted/50 transition-colors`}
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          title={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
+        >
+          {sidebarCollapsed ? (
+            <span className="font-bold text-lg text-primary">K</span>
+          ) : (
+            <span className="font-semibold">Kiro Gateway</span>
+          )}
         </div>
         
         {/* 导航 */}
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+        <nav className={`flex-1 ${sidebarCollapsed ? 'p-2' : 'p-3'} space-y-1 overflow-y-auto overflow-x-hidden`}>
           {/* 凭证管理 - 可折叠分组 */}
           <div>
             <button
               onClick={() => {
                 if (activeTab === 'credentials') {
-                  // 已经在凭证管理 tab，则切换折叠状态
+                  // 已经在凭证管理 tab，则切换分组折叠状态
                   setGroupsExpanded(!groupsExpanded)
                 } else {
                   // 不在凭证管理 tab，则切换到该 tab（不改变折叠状态）
                   setActiveTab('credentials')
                 }
               }}
-              className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+              title={sidebarCollapsed ? '凭证管理' : undefined}
+              className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-between'} gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
                 activeTab === 'credentials'
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted'
               }`}
             >
-              <div className="flex items-center gap-3">
+              <div className={`flex items-center ${sidebarCollapsed ? '' : 'gap-3'}`}>
                 <Key className="h-4 w-4" />
-                凭证管理
+                {!sidebarCollapsed && '凭证管理'}
               </div>
-              <ChevronDown className={`h-3 w-3 transition-transform ${groupsExpanded ? '' : '-rotate-90'}`} />
+              {!sidebarCollapsed && <ChevronDown className={`h-3 w-3 transition-transform ${groupsExpanded ? '' : '-rotate-90'}`} />}
             </button>
             
-            {/* 分组列表 */}
-            {groupsExpanded && (
-              <div className="mt-1 ml-3 space-y-0.5">
+            {/* 分组列表 - 带动画 */}
+            <div 
+              className={`overflow-hidden transition-all duration-200 ease-in-out ${sidebarCollapsed ? '' : 'ml-3'}`}
+              style={{
+                display: 'grid',
+                gridTemplateRows: groupsExpanded ? '1fr' : '0fr',
+              }}
+            >
+              <div className="min-h-0 mt-1 space-y-0.5">
                 
                 {/* 各个分组 */}
-                {groups.map(group => (
+                {groups.map(group => {
+                  const isProxyActive = proxyRunning && (activeGroupId === null || activeGroupId === group.id)
+                  return (
                   <button
                     key={group.id}
                     onClick={() => {
@@ -589,71 +616,88 @@ export function Dashboard(_props: DashboardProps) {
                         setEditGroupDialogOpen(true)
                       }
                     }}
-                    className={`w-full flex items-center gap-2 pl-4 pr-3 py-1.5 rounded text-xs transition-colors ${
+                    title={sidebarCollapsed ? group.name : undefined}
+                    className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-2 pl-4 pr-3'} py-1.5 rounded text-xs transition-colors ${
                       selectedGroupId === group.id
-                        ? 'bg-muted text-foreground font-medium'
+                        ? 'bg-accent text-accent-foreground font-semibold'
                         : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                     }`}
                   >
-                    <span className="relative">
-                      {proxyRunning && activeGroupId === group.id && (
-                        <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[8px] text-green-500" title="反代使用中">●</span>
-                      )}
-                      <FolderOpen className="h-3 w-3" />
-                    </span>
-                    {group.name}
-                    <span className="ml-auto text-[10px] text-muted-foreground">
-                      {group.credentialCount}
-                    </span>
+                    {sidebarCollapsed ? (
+                      // 折叠模式：显示前两个字，反代中变绿
+                      <span className={`${isProxyActive ? 'text-green-500' : ''} ${selectedGroupId === group.id ? 'font-bold' : ''}`}>
+                        {group.name.slice(0, 2)}
+                      </span>
+                    ) : (
+                      // 展开模式：完整显示
+                      <>
+                        <span className="relative">
+                          {isProxyActive && (
+                            <span className="absolute -left-3 top-1/2 -translate-y-1/2 text-[8px] text-green-500" title="反代使用中">●</span>
+                          )}
+                          <FolderOpen className="h-3 w-3" />
+                        </span>
+                        {group.name}
+                        <span className="ml-auto text-[10px] text-muted-foreground">
+                          {group.credentialCount}
+                        </span>
+                      </>
+                    )}
                   </button>
-                ))}
+                )})}
                 
                 {/* 添加分组按钮 */}
                 <button
                   onClick={() => setAddGroupDialogOpen(true)}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  title={sidebarCollapsed ? '添加分组' : undefined}
+                  className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-2 px-3'} py-1.5 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors`}
                 >
                   <Plus className="h-3 w-3" />
-                  添加分组
+                  {!sidebarCollapsed && '添加分组'}
                 </button>
               </div>
-            )}
+            </div>
           </div>
            <NavItem
             icon={<Settings2 className="h-4 w-4" />}
             label="系统设置"
             active={activeTab === 'system'}
             onClick={() => setActiveTab('system')}
+            collapsed={sidebarCollapsed}
           />
           <NavItem
             icon={<Network className="h-4 w-4" />}
             label="反代设置"
             active={activeTab === 'config'}
             onClick={() => setActiveTab('config')}
+            collapsed={sidebarCollapsed}
           />
           <NavItem
             icon={<Terminal className="h-4 w-4" />}
             label="运行日志"
             active={activeTab === 'logs'}
             onClick={() => setActiveTab('logs')}
+            collapsed={sidebarCollapsed}
           />
          
         </nav>
         
         {/* 底部操作 */}
-        <div className="p-3 border-t space-y-1">
+        <div className={`${sidebarCollapsed ? 'p-2' : 'p-3'} border-t space-y-1`}>
           <button
             onClick={toggleDarkMode}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            title={sidebarCollapsed ? (darkMode ? '浅色模式' : '深色模式') : undefined}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors ${sidebarCollapsed ? 'justify-center' : ''}`}
           >
             {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            {darkMode ? '浅色模式' : '深色模式'}
+            {!sidebarCollapsed && (darkMode ? '浅色模式' : '深色模式')}
           </button>
           <NavItem
             icon={<Info className="h-4 w-4" />}
             label="关于"
             active={activeTab === 'about'}
             onClick={() => setActiveTab('about')}
+            collapsed={sidebarCollapsed}
           />
         </div>
       </aside>
@@ -666,16 +710,21 @@ export function Dashboard(_props: DashboardProps) {
             {activeTab === 'credentials' && (
               <>
                 凭证管理
-                <a
-                  href="https://pay.ldxp.cn/shop/V6VSA2G8"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-2 inline-flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-medium rounded-full transition-all duration-200 shadow-sm hover:shadow-md"
+                <button
+                  onClick={async () => {
+                    try {
+                      const { invoke } = (window as any).__TAURI__.core
+                      await invoke('open_url', { url: 'https://pay.ldxp.cn/shop/V6VSA2G8' })
+                    } catch (e) {
+                      console.error('打开链接失败:', e)
+                    }
+                  }}
+                  className="ml-2 inline-flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-medium rounded-full transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer"
                   title="购买账号"
                 >
                   <ShoppingCart className="h-4 w-4 animate-shake-periodic" strokeWidth={2.5} />
                   商城
-                </a>
+                </button>
               </>
             )}
             {activeTab === 'config' && '反代设置'}
